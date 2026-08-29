@@ -1,0 +1,18 @@
+# Dependencies (Strictly 0, but good practice)
+node_modules/
+
+# Logs
+logs
+*.log
+npm-debug.log*
+
+# Environment local overrides
+.env.local
+.env.*.local
+
+# Editor & OS files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+.gemini/

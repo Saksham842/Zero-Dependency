@@ -1,0 +1,29 @@
+{
+  "name": "zeropack",
+  "version": "1.0.0",
+  "description": "Zero-dependency JavaScript bundler, minifier, and HMR dev server built exclusively with Node.js built-ins.",
+  "type": "module",
+  "main": "src/cli.js",
+  "bin": {
+    "zeropack": "./zeropack.js"
+  },
+  "scripts": {
+    "start": "node src/cli.js",
+    "dev": "node src/cli.js --serve",
+    "build": "node src/cli.js --minify",
+    "build-standalone": "node src/build-tools.js",
+    "verify": "node src/build-tools.js --verify"
+  },
+  "keywords": [
+    "bundler",
+    "zero-dependency",
+    "dev-server",
+    "hmr",
+    "minifier",
+    "node-native"
+  ],
+  "author": "ZeroPack Team",
+  "license": "MIT",
+  "dependencies": {},
+  "devDependencies": {}
+}
