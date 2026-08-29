@@ -5,6 +5,7 @@ import crypto from 'node:crypto';
 import { logger, colors } from './cli.js';
 import { buildDependencyGraph } from './parser.js';
 import { bundleToFile } from './bundler.js';
+import { DASHBOARD_HTML } from './dashboard.js';
 
 // -----------------------------------------------------------------------------
 // 1. Native MIME Type Lookup Table
@@ -132,9 +133,11 @@ export async function startDevServer(options = {}) {
     entry = 'src/index.js',
     out = 'dist/bundle.js',
     minify = false,
-    rootDir = process.cwd()
+    rootDir = process.cwd(),
+    stats: initialStats = null
   } = options;
 
+  let currentStats = initialStats;
   const activeSockets = new Set();
 
   // Helper to broadcast WebSocket message to all connected clients
@@ -151,25 +154,53 @@ export async function startDevServer(options = {}) {
     }
   }
 
-  // Initial compilation
+  // Initial / Rebuild compilation
   function compile() {
     try {
       const graph = buildDependencyGraph(entry, rootDir);
       const result = bundleToFile(graph, out, { minify, hmr: true });
+      currentStats = result.stats;
       logger.hmr(`Rebuilt bundle: ${colors.green(result.size + ' bytes')} (${colors.gray(result.hash.slice(0, 10))})`);
-      return true;
+      return result;
     } catch (err) {
       logger.error(`Rebuild error: ${err.message}`);
-      return false;
+      return null;
     }
   }
 
-  compile();
+  if (!currentStats) {
+    compile();
+  }
 
   // HTTP Server
   const server = http.createServer((req, res) => {
     const parsedUrl = new URL(req.url, `http://localhost:${port}`);
     let pathname = decodeURIComponent(parsedUrl.pathname);
+
+    // -------------------------------------------------------------------------
+    // Route 1: Built-in ZeroPack Dashboard UI (/__zeropack)
+    // -------------------------------------------------------------------------
+    if (pathname === '/__zeropack' || pathname === '/__zeropack/') {
+      res.writeHead(200, {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': 'no-cache, no-store, must-revalidate'
+      });
+      res.end(DASHBOARD_HTML);
+      return;
+    }
+
+    // -------------------------------------------------------------------------
+    // Route 2: Built-in ZeroPack Stats API (/__zeropack/stats)
+    // -------------------------------------------------------------------------
+    if (pathname === '/__zeropack/stats') {
+      res.writeHead(200, {
+        'Content-Type': 'application/json; charset=utf-8',
+        'Access-Control-Allow-Origin': '*',
+        'Cache-Control': 'no-cache, no-store, must-revalidate'
+      });
+      res.end(JSON.stringify(currentStats || {}));
+      return;
+    }
 
     // Route root to index.html
     if (pathname === '/' || pathname === '') {
@@ -343,6 +374,7 @@ export async function startDevServer(options = {}) {
   return new Promise((resolve, reject) => {
     server.listen(port, () => {
       logger.server(`Development server running at: ${colors.green(colors.bold(`http://localhost:${port}/`))}`);
+      logger.server(`Developer Dashboard active at: ${colors.brightCyan(colors.bold(`http://localhost:${port}/__zeropack`))}`);
       logger.server(`HMR WebSocket endpoint active at: ${colors.cyan(colors.bold(`ws://localhost:${port}/__zeropack_hmr`))}`);
       logger.info(`Watching directory: ${colors.gray(watchDir)}`);
       resolve({ server, broadcast, close: closeServer });

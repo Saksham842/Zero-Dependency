@@ -149,15 +149,34 @@ export function minifyCode(code) {
 }
 
 /**
- * Bundles the dependency graph into a deterministic, single-file IIFE bundle.
+ * Bundles the dependency graph into a deterministic, single-file IIFE bundle
+ * and collects rich build metrics for the ZeroPack dashboard.
  */
 export function generateBundle(graph, options = {}) {
+  const startTime = Date.now();
   const { minify = false, hmr = false } = options;
 
-  // 1. Sort modules deterministically by relative path for byte-identical reproducible builds
+  // 1. Calculate original size and module metrics
+  let originalSize = 0;
+  const moduleStats = [];
+
+  for (const mod of graph) {
+    const modBytes = Buffer.byteLength(mod.code || '', 'utf8');
+    originalSize += modBytes;
+    moduleStats.push({
+      id: mod.id,
+      filePath: mod.relativePath || mod.filePath,
+      size: modBytes
+    });
+  }
+
+  // Sort modules by size descending for dashboard charts
+  moduleStats.sort((a, b) => b.size - a.size);
+
+  // 2. Sort modules deterministically by relative path for byte-identical reproducible builds
   const sortedGraph = [...graph].sort((a, b) => a.relativePath.localeCompare(b.relativePath));
 
-  // 2. Build modules mapping string
+  // 3. Build modules mapping string
   let modulesString = '{\n';
   for (const mod of sortedGraph) {
     const mappingJson = JSON.stringify(mod.mapping);
@@ -171,7 +190,7 @@ export function generateBundle(graph, options = {}) {
   }
   modulesString += '}';
 
-  // 3. Runtime bundle template (Zero-dependency custom require runtime)
+  // 4. Runtime bundle template (Zero-dependency custom require runtime)
   let bundleSource = `/**
  * Bundled by ZeroPack (Zero-Dependency Bundler)
  */
@@ -225,7 +244,7 @@ export function generateBundle(graph, options = {}) {
 })(${modulesString});
 `;
 
-  // 4. Inject HMR Client Runtime if requested
+  // 5. Inject HMR Client Runtime if requested
   if (hmr) {
     const hmrClient = `
 // --- ZeroPack Native HMR Client Runtime ---
@@ -262,18 +281,31 @@ export function generateBundle(graph, options = {}) {
     bundleSource += hmrClient;
   }
 
-  // 5. Minify if requested
+  // 6. Minify if requested
   if (minify) {
     bundleSource = minifyCode(bundleSource);
   }
 
+  const minifiedSize = Buffer.byteLength(bundleSource, 'utf8');
+  const buildTimeMs = Math.max(1, Date.now() - startTime);
   const hash = crypto.createHash('sha256').update(bundleSource).digest('hex');
+
+  const stats = {
+    moduleCount: graph.length,
+    originalSize,
+    minifiedSize,
+    buildTimeMs,
+    compressionRatio: originalSize > 0 ? (((originalSize - minifiedSize) / originalSize) * 100).toFixed(1) + '%' : '0%',
+    modules: moduleStats,
+    lastBuildTimestamp: new Date().toLocaleTimeString()
+  };
 
   return {
     code: bundleSource,
-    size: Buffer.byteLength(bundleSource, 'utf8'),
+    size: minifiedSize,
     hash,
-    modulesCount: graph.length
+    modulesCount: graph.length,
+    stats
   };
 }
 

@@ -255,7 +255,7 @@ export async function runCli(args = process.argv.slice(2)) {
     });
 
     const elapsed = (performance.now() - startTime).toFixed(2);
-    logger.success(`Bundle generated in ${colors.bold(elapsed + 'ms')} (${colors.cyan(result.size + ' bytes')})`);
+    logger.success(`Bundle generated in ${colors.bold(elapsed + 'ms')} (${colors.cyan(result.size + ' bytes')}) [${colors.green(result.stats.compressionRatio + ' saved')}]`);
     logger.info(`SHA-256 Hash: ${colors.gray(result.hash)}`);
 
     if (config.serve) {
@@ -265,7 +265,8 @@ export async function runCli(args = process.argv.slice(2)) {
         entry: config.entry,
         out: config.out,
         minify: config.minify,
-        rootDir: process.cwd()
+        rootDir: process.cwd(),
+        stats: result.stats
       });
     }
   } catch (error) {

@@ -29,6 +29,39 @@ async function testServerAndHmr() {
     process.exit(1);
   }
 
+  // 1b. Test Built-in Dashboard UI (/__zeropack)
+  const dashboard = await new Promise((resolve, reject) => {
+    http.get('http://localhost:4321/__zeropack', (res) => {
+      let data = '';
+      res.on('data', (c) => data += c);
+      res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, data }));
+    }).on('error', reject);
+  });
+
+  if (dashboard.status === 200 && dashboard.data.includes('ZeroPack Dashboard')) {
+    logger.success('Dashboard UI Test Passed: 200 OK (/__zeropack)');
+  } else {
+    logger.error('Dashboard UI Test Failed!');
+    process.exit(1);
+  }
+
+  // 1c. Test Built-in Stats API (/__zeropack/stats)
+  const statsRes = await new Promise((resolve, reject) => {
+    http.get('http://localhost:4321/__zeropack/stats', (res) => {
+      let data = '';
+      res.on('data', (c) => data += c);
+      res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, data }));
+    }).on('error', reject);
+  });
+
+  const parsedStats = JSON.parse(statsRes.data);
+  if (statsRes.status === 200 && parsedStats.moduleCount > 0 && parsedStats.minifiedSize > 0) {
+    logger.success(`Dashboard Stats API Passed: 200 OK (moduleCount=${parsedStats.moduleCount}, size=${parsedStats.minifiedSize}b)`);
+  } else {
+    logger.error('Dashboard Stats API Failed!');
+    process.exit(1);
+  }
+
   // 2. Test RFC 6455 WebSocket Upgrade Handshake
   const clientKey = crypto.randomBytes(16).toString('base64');
   const expectedAccept = crypto
