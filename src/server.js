@@ -192,6 +192,7 @@ export async function startDevServer(options = {}) {
   // Initial / Rebuild compilation
   function compile() {
     isBuilding = true;
+    broadcast({ type: 'status', status: 'building' });
     try {
       const graph = buildDependencyGraph(entry, rootDir);
       const outputPath = path.isAbsolute(out) ? out : path.join(rootDir, out);
@@ -199,15 +200,31 @@ export async function startDevServer(options = {}) {
       result.stats.status = 'success';
       currentStats = result.stats;
       logger.hmr(`Rebuilt bundle: ${colors.green(result.size + ' bytes')} (${colors.gray(result.hash.slice(0, 10))})`);
+      broadcast({ type: 'status', status: 'success', stats: currentStats });
       return result;
     } catch (err) {
       logger.error(`Rebuild error: ${err.message}`);
+      let errorPayload;
+      if (err.name === 'BuildError') {
+        errorPayload = {
+          message: err.message,
+          file: err.file,
+          line: err.line,
+          column: err.column,
+          suggestion: err.suggestion,
+          category: err.category
+        };
+      } else {
+        errorPayload = { message: err.message };
+      }
+      
       if (currentStats) {
         currentStats.status = 'failed';
-        currentStats.error = err.message;
+        currentStats.error = errorPayload;
       } else {
-        currentStats = { status: 'failed', error: err.message };
+        currentStats = { status: 'failed', error: errorPayload };
       }
+      broadcast({ type: 'status', status: 'failed', error: errorPayload });
       return null;
     } finally {
       isBuilding = false;

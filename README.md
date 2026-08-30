@@ -10,11 +10,11 @@
 /_/    \____/_/   \____/_/    \__,_/\___/_/|_|   
 ```
 
-**The 100% Zero-Dependency JavaScript Bundler, Minifier & RFC 6455 HMR Dev Server.**  
+**The 100% Zero-Dependency JavaScript Bundler, Minifier & RFC 6455 Live Reload Dev Server.**  
 *Built strictly with Node.js built-in core libraries.*
 
 [![Dependencies](https://img.shields.io/badge/dependencies-0%20(ZERO)-brightgreen.svg?style=for-the-badge&logo=node.js)](package.json)
-[![Node Version](https://img.shields.io/badge/node-%3E%3D18.0.0-blue.svg?style=for-the-badge&logo=node.js)](package.json)
+[![Node Version](https://img.shields.io/badge/node-%3E%3D18.3.0-blue.svg?style=for-the-badge&logo=node.js)](package.json)
 [![RFC 6455](https://img.shields.io/badge/WebSockets-RFC%206455%20Native-orange.svg?style=for-the-badge)](src/server.js)
 [![Reproducible](https://img.shields.io/badge/Builds-100%25%20Deterministic-purple.svg?style=for-the-badge)](src/build-tools.js)
 [![License](https://img.shields.io/badge/license-MIT-green.svg?style=for-the-badge)](LICENSE)
@@ -28,6 +28,7 @@
 - [Overview](#-overview)
 - [Zero-Dependency Matrix](#-zero-dependency-matrix)
 - [Key Features](#-key-features)
+- [Module Support Matrix](#-module-support-matrix)
 - [Quick Start](#-quick-start)
 - [CLI Reference](#-cli-reference)
 - [Architecture & How It Works](#-architecture--how-it-works)
@@ -35,9 +36,10 @@
   - [2. Dependency Graph & Module Scanner](#2-dependency-graph--module-scanner)
   - [3. Scope Hoister & Custom Require Runtime](#3-scope-hoister--custom-require-runtime)
   - [4. State-Machine Minifier](#4-state-machine-minifier)
-  - [5. Native RFC 6455 WebSocket HMR Server](#5-native-rfc-6455-websocket-hmr-server)
+  - [5. Native RFC 6455 WebSocket Live Reload Server](#5-native-rfc-6455-websocket-live-reload-server)
   - [6. Reproducible Build Verifier](#6-reproducible-build-verifier)
 - [Single-File Standalone Distribution](#-single-file-standalone-distribution)
+- [Repository Structure](#-repository-structure)
 - [Project Scripts](#-project-scripts)
 - [Verification & Testing](#-verification--testing)
 - [License](#-license)
@@ -74,29 +76,55 @@ Every industry-standard npm library has been replaced with a native Node.js core
 
 - 🛡️ **0 Third-Party Dependencies:** 100% compliant with strict zero-dependency competition constraints.
 - ⚡ **Blazing Fast Bundling:** Sub-30ms cold builds directly on Node.js.
-- 🔄 **Native RFC 6455 WebSocket HMR:** Real-time live reloading without external WebSocket engines.
+- 🔄 **Native RFC 6455 WebSocket Live Reload:** Real-time full-page reloading without external WebSocket engines.
 - 🗜️ **Built-in Minification:** State-machine lexer that strips comments and whitespace without corrupting template strings or regex literals.
 - 🔒 **100% Deterministic Reproducible Builds:** Modules are sorted lexicographically by normalized paths to guarantee bit-for-bit identical SHA-256 output across runs.
-- 🛡️ **Robust Error Handling:** Comprehensive `BuildError` diagnostics with explicit process exit codes (`1` on initial failure) and resilient dev server state preservation.
+- 🛡️ **Robust Error Handling:** Comprehensive `BuildError` diagnostics pointing directly to the file, line, and column of errors.
 - 🔄 **Stateful Watch Rebuilds:** Dev server gracefully queues concurrent file system changes and retains previous bundle outputs upon compilation failure.
 - 📦 **Single-File Distribution:** Compiles the entire bundler into an independent, standalone executable `zeropack.js`.
-- 🌐 **Static Dev Server:** Built-in HTTP server with MIME auto-detection and automatic client HMR script injection.
+- 🌐 **Static Dev Server:** Built-in HTTP server with MIME auto-detection and automatic client Live Reload script injection.
+
+---
+
+## 🧩 Module Support Matrix
+
+ZeroPack implements a fast single-pass lexical scanner to parse and compile modern JavaScript without an AST.
+
+| Feature                    | Status              | Description                                      |
+| -------------------------- | ------------------- | ------------------------------------------------ |
+| ESM imports (`import`)     | Supported           | Supports named, default, and namespace imports   |
+| Named exports              | Supported           | `export const`, `export function`, `export class`|
+| Default exports            | Supported           | `export default function`, multiline objects     |
+| Re-exports                 | Supported           | `export { x } from ...`, `export * from ...`     |
+| JSON modules               | Supported           | Parses JSON, ignores `with { type: 'json' }`     |
+| Dynamic imports            | Supported           | `import('./file.js')` mapped to Promise          |
+| CommonJS require           | Limited             | `require()` works natively if strictly formatted |
+| npm Package Resolution     | Unsupported         | Only resolves local relative paths (`./`, `../`) |
+| TypeScript syntax          | Unsupported         | Resolves `.ts` extensions, but does not compile  |
+| JSX syntax                 | Unsupported         | Resolves `.jsx` extensions, but does not compile |
 
 ---
 
 ## 🚀 Quick Start
 
-### 1. Clone & Run
-```bash
-# Clone the repository
-git clone https://github.com/your-username/zeropack.git
-cd zeropack
+A new developer can get up and running immediately.
 
-# No npm install needed! Run directly:
-node src/cli.js --help
+### 1. Clone & Setup
+```bash
+git clone https://github.com/Saksham842/Zero-Dependency.git
+cd Zero-Dependency
+
+# No npm install needed!
 ```
 
-### 2. Build Your Project
+### 2. Run Tests & Verify Correctness
+Ensure the toolchain works locally.
+```bash
+npm run check
+```
+*Runs the test suite and verifies deterministic bit-for-bit builds.*
+
+### 3. Build Your Project
 ```bash
 # Basic bundle
 node src/cli.js --entry src/index.js --out dist/bundle.js
@@ -105,10 +133,10 @@ node src/cli.js --entry src/index.js --out dist/bundle.js
 npm run build
 ```
 
-### 3. Start Development Server with Live HMR
+### 4. Serve & Watch
 ```bash
 npm run dev
-# Opens dev server on http://localhost:3000 with live WebSocket reloader
+# Opens dev server on http://localhost:3000 with Live Reload
 ```
 
 ---
@@ -122,23 +150,13 @@ USAGE:
   node zeropack.js [options]
 
 OPTIONS:
-  --entry <path>     Entry JavaScript/TypeScript file (default: src/index.js)
+  --entry <path>     Entry JavaScript file (default: src/index.js)
   --out <path>       Output bundle path (default: dist/bundle.js)
-  --serve            Start native HTTP static dev server & RFC 6455 WebSocket HMR
+  --serve            Start native HTTP static dev server & RFC 6455 Live Reload
   --port <number>    Port for the dev server (default: 3000)
   --minify           Minify output bundle (removes comments & whitespace)
   --env <path>       Custom path to .env file (default: .env)
   --help, -h         Display this help message
-
-EXAMPLES:
-  # Minified production build
-  node src/cli.js --entry src/index.js --out dist/bundle.js --minify
-
-  # Development server on custom port
-  node src/cli.js --entry src/index.js --serve --port 8080
-
-  # Compile single-file standalone distribution & verify
-  npm run build-standalone
 ```
 
 ---
@@ -148,7 +166,7 @@ EXAMPLES:
 ```mermaid
 flowchart TD
     A[Entry File: src/index.js] --> B[Recursive Dependency Scanner]
-    B --> C[AST / Regex Transformer]
+    B --> C[Lexical Scanner / Transformer]
     C --> D[SHA-256 Module Node Graph]
     D --> E[Deterministic Path Sorter]
     E --> F[IIFE Scope Wrapper & Custom require Runtime]
@@ -157,8 +175,8 @@ flowchart TD
     G -- No --> I[Raw IIFE Bundle]
     H --> J[dist/bundle.js]
     I --> J[dist/bundle.js]
-    J --> K[HTTP Static Server + RFC 6455 HMR WebSocket]
-    K --> L[Browser Live Reload]
+    J --> K[HTTP Static Server + RFC 6455 Live Reload WebSocket]
+    K --> L[Browser Full-Page Reload]
 ```
 
 ### 1. CLI & Environment Engine ([`src/cli.js`](src/cli.js))
@@ -167,72 +185,28 @@ flowchart TD
 - Ansi color utility creates vibrant terminal outputs and tables without external coloring libraries.
 
 ### 2. Dependency Graph & Module Scanner ([`src/parser.js`](src/parser.js))
-- Recursively traverses `import` and `require` statements using regex pattern matchers.
+- Recursively traverses `import` and `require` statements using a single-pass lexical scanner.
+- Safely ignores `import` keywords inside strings or comments.
 - Converts ES Module syntax (`import ... from`, `export default`, `export const`, `export { ... }`) into isolated CommonJS module bodies compatible with the bundle runtime.
-- Generates a graph of nodes:
-  ```json
-  {
-    "id": 0,
-    "filePath": "C:/app/src/index.js",
-    "relativePath": "src/index.js",
-    "mapping": { "./components.js": 1 },
-    "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-  }
-  ```
 - Detects circular dependencies via recursion stack analysis and issues actionable warnings without crashing.
 
 ### 3. Scope Hoister & Custom Require Runtime ([`src/bundler.js`](src/bundler.js))
-Wraps all modules into a scoped Immediately Invoked Function Expression (IIFE) with an isolated module cache and scoped `localRequire`:
-
-```javascript
-(function(modules) {
-  var installedModules = {};
-
-  function __zeropack_require__(moduleId) {
-    if (installedModules[moduleId]) {
-      return installedModules[moduleId].exports;
-    }
-    var module = installedModules[moduleId] = { id: moduleId, loaded: false, exports: {} };
-    var fn = modules[moduleId][0];
-    var mapping = modules[moduleId][1];
-
-    function localRequire(name) {
-      return __zeropack_require__(mapping[name]);
-    }
-
-    fn(localRequire, module, module.exports);
-    module.loaded = true;
-    return module.exports;
-  }
-
-  return __zeropack_require__(0);
-})({
-  0: [function(require, module, exports) { ... }, { "./utils.js": 1 }]
-});
-```
+Wraps all modules into a scoped Immediately Invoked Function Expression (IIFE) with an isolated module cache and scoped `localRequire`.
 
 ### 4. State-Machine Minifier ([`src/bundler.js`](src/bundler.js))
 A streaming state-machine parser that iterates character-by-character:
 - Strips single-line `//` comments.
 - Strips multi-line `/* ... */` comments.
-- Accurately tracks quotes (`'`, `"`) and template literals (``` ` ```) to prevent stripping contents inside strings.
+- Accurately tracks quotes (`'`, `"`) and template literals to prevent stripping contents inside strings.
 - Strips non-essential whitespace while ensuring operators and keyword boundaries are strictly preserved.
 
-### 5. Native RFC 6455 WebSocket HMR Server ([`src/server.js`](src/server.js))
-- **Handshake Protocol:** Intercepts `upgrade` requests on `node:http`. Computes `Sec-WebSocket-Accept` header using:
-  $$\text{Base64}(\text{SHA-1}(\text{Sec-WebSocket-Key} + \text{"258EAFA5-E914-47DA-95CA-C5AB0DC85B11"}))$$
-- **Frame Encoder:** Formats binary frames with FIN bits and payload length headers (7-bit, 16-bit, 64-bit uints).
+### 5. Native RFC 6455 WebSocket Live Reload Server ([`src/server.js`](src/server.js))
+- **Handshake Protocol:** Intercepts `upgrade` requests on `node:http`. Computes `Sec-WebSocket-Accept` header.
+- **Frame Encoder:** Formats binary frames with FIN bits and payload length headers.
 - **Watcher & Broadcaster:** `node:fs.watch` detects changes with 100ms debounce, recompiles the bundle, and pushes `{ type: 'reload' }` frames to all connected browser clients.
 
 ### 6. Reproducible Build Verifier ([`src/build-tools.js`](src/build-tools.js))
-Runs sequential multi-pass builds on identical source trees and compares their SHA-256 hashes to guarantee byte-for-byte reproducibility:
-
-```
---- VERIFICATION AUDIT REPORT ---
-Build #1 SHA-256: 07af061c6d70ff147da38f38448302d9ffec86aa5f63e571fb781c85f0835882 (3824 bytes)
-Build #2 SHA-256: 07af061c6d70ff147da38f38448302d9ffec86aa5f63e571fb781c85f0835882 (3824 bytes)
-[SUCCESS] BYTE-FOR-BYTE IDENTICAL! Deterministic reproducible build verified 100%.
-```
+Runs sequential multi-pass builds on identical source trees and compares their SHA-256 hashes to guarantee byte-for-byte reproducibility.
 
 ---
 
@@ -250,25 +224,38 @@ node zeropack.js --entry src/index.js --out dist/bundle.js --minify
 
 ---
 
+## 🏗️ Repository Structure
+
+If you'd like to contribute, here's where to find the core logic:
+
+- `src/cli.js` - Command-line interface, parsing flags, environment variables, and diagnostic logging.
+- `src/parser.js` - Lexical scanner, ESM syntax transformation, dependency resolution, and graph construction.
+- `src/bundler.js` - IIFE wrapper generation, module dictionary formatting, and state-machine minifier.
+- `src/server.js` - HTTP static dev server, MIME resolution, directory watching, and RFC 6455 WebSocket engine.
+- `src/dashboard.js` - Zero-dependency HTML/CSS/JS injected for the `/__zeropack` developer dashboard.
+- `src/build-tools.js` - Reproducible verification tools and standalone `.js` binary compiler.
+
+---
+
 ## 📋 Project Scripts
 
 | Command | Action |
 | :--- | :--- |
 | `npm run start` | Run CLI with default parameters |
-| `npm run dev` | Start dev server with Live Reload HMR on port 3000 |
+| `npm run dev` | Start dev server with Live Reload on port 3000 |
 | `npm run build` | Compile and minify `src/index.js` into `dist/bundle.js` |
+| `npm run check` | Run unit tests and deterministic build verification |
 | `npm run build-standalone` | Generate single-file `zeropack.js` and build verification |
-| `npm run verify` | Run reproducible build checksum validation |
 
 ---
 
 ## 🧪 Verification & Testing
 
-ZeroPack includes automated verification tests for the dev server and RFC 6455 WebSocket engine:
+ZeroPack includes automated regression tests for the parser, bundler, server, and WebSocket engine:
 
 ```bash
-# Run server & WebSocket HMR automated test
-node test-server.js
+# Run tests via the native Node.js test runner
+npm test
 ```
 
 ---

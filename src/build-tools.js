@@ -147,7 +147,7 @@ export function verifyReproducibleBuild(entryFile) {
 export function createStdlibDocSource() {
   return `# ZeroPack — Native Node.js Standard Library Architecture
 
-ZeroPack is a full-featured JavaScript bundler, minifier, and HMR dev server engineered with **STRICTLY 0 third-party runtime dependencies**. Every capability is built directly on Node.js core libraries.
+ZeroPack is a full-featured JavaScript bundler, minifier, and Live Reload dev server engineered with **STRICTLY 0 third-party runtime dependencies**. Every capability is built directly on Node.js core libraries.
 
 ---
 
@@ -187,7 +187,7 @@ npm run build-standalone
 # Verify reproducible bit-for-bit builds
 npm run verify
 
-# Start development server with Live Reload HMR
+# Start development server with Live Reload
 npm run dev
 
 # Production build with minification

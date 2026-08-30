@@ -3,12 +3,28 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { logger, colors } from './cli.js';
 
+
 export class BuildError extends Error {
-  constructor(message, file) {
+  constructor({ message, file, line, column, suggestion, category }) {
     super(message);
     this.name = 'BuildError';
     this.file = file;
+    this.line = line;
+    this.column = column;
+    this.suggestion = suggestion;
+    this.category = category || 'Build';
   }
+}
+
+export function getLineColumn(code, index) {
+  if (index < 0) index = 0;
+  if (index > code.length) index = code.length;
+  const before = code.substring(0, index);
+  const lines = before.split('\n');
+  return {
+    line: lines.length,
+    column: lines[lines.length - 1].length + 1
+  };
 }
 
 /**
@@ -27,6 +43,7 @@ export function resolveModulePath(fromFile, specifier, rootDir = process.cwd()) 
 
   // 1. Exact file match
   if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
+    checkUnsupportedExtension(candidate);
     return candidate;
   }
 
@@ -44,12 +61,39 @@ export function resolveModulePath(fromFile, specifier, rootDir = process.cwd()) 
     for (const ext of extensions) {
       const indexFile = path.join(candidate, `index${ext}`);
       if (fs.existsSync(indexFile) && fs.statSync(indexFile).isFile()) {
+        checkUnsupportedExtension(indexFile);
         return indexFile;
       }
     }
   }
+  
+  if (!specifier.startsWith('.') && !specifier.startsWith('/')) {
+    throw new BuildError({
+      message: `Unable to resolve bare module specifier '${specifier}'`,
+      file: fromFile,
+      suggestion: 'ZeroPack does not currently support full npm package resolution from node_modules. Please use relative paths for local files.',
+      category: 'Resolution'
+    });
+  }
 
-  throw new BuildError(`Cannot resolve module '${specifier}' requested by '${fromFile}'`, fromFile);
+  throw new BuildError({
+    message: `Cannot resolve module '${specifier}' requested by '${path.relative(rootDir, fromFile)}'`,
+    file: fromFile,
+    suggestion: 'Check that the file exists and that the import path is correct.',
+    category: 'Resolution'
+  });
+}
+
+function checkUnsupportedExtension(filePath) {
+  const ext = path.extname(filePath).toLowerCase();
+  if (ext === '.ts' || ext === '.tsx' || ext === '.jsx') {
+    throw new BuildError({
+      message: `Unsupported syntax`,
+      file: filePath,
+      suggestion: `ZeroPack currently resolves ${ext} files but does not transform TypeScript or JSX.`,
+      category: 'Syntax'
+    });
+  }
 }
 
 /**
@@ -137,7 +181,15 @@ export function transformModuleCode(rawCode, filePath) {
           };
         }
       }
-      throw new BuildError(`Unsupported dynamic import expression`, filePath);
+      const { line, column } = getLineColumn(rawCode, idx);
+      throw new BuildError({
+        message: `Unsupported dynamic import expression`,
+        file: filePath,
+        line,
+        column,
+        suggestion: 'ZeroPack only supports static string literals in dynamic imports, e.g., import("./file.js").',
+        category: 'Syntax'
+      });
     }
 
     let clause = '';
@@ -200,7 +252,15 @@ export function transformModuleCode(rawCode, filePath) {
       }
       if (rawCode[idx] === ';') idx++;
     } else {
-      throw new BuildError(`Expected string literal after 'from'`, filePath);
+      const { line, column } = getLineColumn(rawCode, idx);
+      throw new BuildError({
+        message: `Expected string literal after 'from'`,
+        file: filePath,
+        line,
+        column,
+        suggestion: 'Ensure your import statement has a valid source string (e.g. from "module").',
+        category: 'Syntax'
+      });
     }
 
     dependencies.add(specifier);
@@ -482,7 +542,15 @@ export function transformModuleCode(rawCode, filePath) {
       }
     }
 
-    throw new BuildError(`Unsupported export syntax`, filePath);
+    const { line, column } = getLineColumn(rawCode, idx);
+    throw new BuildError({
+      message: `Unsupported export syntax`,
+      file: filePath,
+      line,
+      column,
+      suggestion: 'ZeroPack supports export default, export const/let/var, export function/class, and export { ... }. Check your syntax.',
+      category: 'Syntax'
+    });
   }
 
   let lastRegexNonWhitespace = '';
@@ -633,7 +701,12 @@ export function buildDependencyGraph(entryPath, rootDir = process.cwd()) {
   const absoluteEntry = path.isAbsolute(entryPath) ? entryPath : path.resolve(rootDir, entryPath);
 
   if (!fs.existsSync(absoluteEntry)) {
-    throw new BuildError(`Entry file not found: ${absoluteEntry}`, absoluteEntry);
+    throw new BuildError({
+      message: `Entry file not found: ${absoluteEntry}`,
+      file: absoluteEntry,
+      suggestion: 'Ensure the entry path specified in the CLI exists.',
+      category: 'Build'
+    });
   }
 
   let nextId = 0;
@@ -647,7 +720,12 @@ export function buildDependencyGraph(entryPath, rootDir = process.cwd()) {
     try {
       rawContent = fs.readFileSync(absoluteFilePath, 'utf8');
     } catch (err) {
-      throw new BuildError(`Failed to read file: ${err.message}`, absoluteFilePath);
+      throw new BuildError({
+        message: `Failed to read file: ${err.message}`,
+        file: absoluteFilePath,
+        suggestion: 'Check file permissions or if the file was deleted.',
+        category: 'FileSystem'
+      });
     }
     const hash = crypto.createHash('sha256').update(rawContent).digest('hex');
     const { code, dependencies } = transformModuleCode(rawContent, absoluteFilePath);
@@ -692,7 +770,12 @@ export function buildDependencyGraph(entryPath, rootDir = process.cwd()) {
       } catch (err) {
         logger.error(`Module resolution failed for '${depSpecifier}' in '${path.relative(rootDir, absoluteFilePath)}': ${err.message}`);
         if (err.name === 'BuildError') throw err;
-        throw new BuildError(`Cannot resolve module '${depSpecifier}' imported from '${path.relative(rootDir, absoluteFilePath)}'`, absoluteFilePath);
+        throw new BuildError({
+          message: `Cannot resolve module '${depSpecifier}' imported from '${path.relative(rootDir, absoluteFilePath)}'`,
+          file: absoluteFilePath,
+          suggestion: 'Check that the dependency exists and the path is correct.',
+          category: 'Resolution'
+        });
       }
     }
 

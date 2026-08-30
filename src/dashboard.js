@@ -113,6 +113,35 @@ export const DASHBOARD_HTML = `<!DOCTYPE html>
       background: var(--success);
       box-shadow: 0 0 8px var(--success);
     }
+    
+    .status-badge.building {
+      color: var(--warning);
+      border-color: rgba(251, 191, 36, 0.3);
+      background: rgba(251, 191, 36, 0.1);
+    }
+    
+    .status-badge.building .status-dot {
+      background: var(--warning);
+      box-shadow: 0 0 8px var(--warning);
+      animation: pulse 1s infinite;
+    }
+    
+    .status-badge.failed {
+      color: var(--danger);
+      border-color: rgba(248, 113, 113, 0.3);
+      background: rgba(248, 113, 113, 0.1);
+    }
+    
+    .status-badge.failed .status-dot {
+      background: var(--danger);
+      box-shadow: 0 0 8px var(--danger);
+    }
+    
+    @keyframes pulse {
+      0% { opacity: 1; }
+      50% { opacity: 0.4; }
+      100% { opacity: 1; }
+    }
 
     .reload-flash {
       animation: pulse-flash 1s ease-in-out;
@@ -139,9 +168,46 @@ export const DASHBOARD_HTML = `<!DOCTYPE html>
       transition: all 0.2s;
     }
 
-    .btn-refresh:hover {
+    .btn-refresh:hover, .btn-refresh:focus {
       background: var(--card-hover);
       border-color: var(--accent);
+      outline: none;
+    }
+    
+    /* Error Panel */
+    .error-panel {
+      display: none;
+      background: rgba(248, 113, 113, 0.05);
+      border: 1px solid rgba(248, 113, 113, 0.3);
+      border-radius: 12px;
+      padding: 1.5rem;
+      margin-bottom: 2rem;
+      border-left: 4px solid var(--danger);
+    }
+    
+    .error-panel.visible {
+      display: block;
+    }
+    
+    .error-title {
+      color: var(--danger);
+      font-weight: 600;
+      font-size: 1.1rem;
+      margin-bottom: 0.5rem;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    .error-details {
+      font-family: monospace;
+      font-size: 0.9rem;
+      color: var(--text-main);
+      background: rgba(0,0,0,0.2);
+      padding: 1rem;
+      border-radius: 6px;
+      margin-top: 1rem;
+      white-space: pre-wrap;
     }
 
     /* Metrics Grid */
@@ -299,15 +365,24 @@ export const DASHBOARD_HTML = `<!DOCTYPE html>
         </div>
       </div>
       <div class="header-actions">
-        <span id="hmr-badge" class="status-badge">
+        <span id="hmr-badge" class="status-badge" role="status" aria-live="polite">
           <span class="status-dot"></span>
-          <span id="hmr-status-text">HMR Live Active</span>
+          <span id="hmr-status-text">Live Reload Active</span>
         </span>
-        <button id="btn-refresh" class="btn-refresh" onclick="fetchMetrics()">
-          <span>🔄</span> Refresh
+        <button id="btn-refresh" class="btn-refresh" onclick="fetchMetrics()" aria-label="Refresh Metrics">
+          <span aria-hidden="true">🔄</span> Refresh
         </button>
       </div>
     </header>
+    
+    <!-- Error Panel -->
+    <div id="error-panel" class="error-panel" role="alert" aria-live="assertive">
+      <div class="error-title">
+        <span aria-hidden="true">❌</span> Build Failed
+      </div>
+      <div id="error-message" style="margin-top: 0.5rem;"></div>
+      <div id="error-details" class="error-details"></div>
+    </div>
 
     <!-- Metrics Cards -->
     <div class="metrics-grid">
@@ -378,23 +453,61 @@ export const DASHBOARD_HTML = `<!DOCTYPE html>
     function renderMetrics(stats) {
       if (!stats) return;
 
+      const errorPanel = document.getElementById('error-panel');
+      const metricsGrid = document.querySelector('.metrics-grid');
+      const chartPanel = document.querySelector('.panel');
+
+      if (stats.status === 'failed') {
+        errorPanel.classList.add('visible');
+        metricsGrid.style.opacity = '0.5';
+        chartPanel.style.opacity = '0.5';
+        
+        const err = stats.error || {};
+        document.getElementById('error-message').textContent = err.message || 'Unknown compilation error';
+        
+        let details = '';
+        if (err.category) details += \`Category: \${err.category}\\n\`;
+        if (err.file) details += \`File:     \${err.file}\${err.line ? ':' + err.line : ''}\${err.column ? ':' + err.column : ''}\\n\`;
+        if (err.suggestion) details += \`\\nAction:   \${err.suggestion}\`;
+        
+        document.getElementById('error-details').textContent = details || JSON.stringify(err, null, 2);
+        return;
+      }
+      
+      // Success state
+      errorPanel.classList.remove('visible');
+      metricsGrid.style.opacity = '1';
+      chartPanel.style.opacity = '1';
+
       document.getElementById('val-module-count').textContent = stats.moduleCount || 0;
       document.getElementById('val-bundle-size').textContent = formatBytes(stats.minifiedSize || 0);
       document.getElementById('val-orig-size').textContent = 'Original: ' + formatBytes(stats.originalSize || 0);
-      document.getElementById('val-build-time').innerHTML = (stats.buildTimeMs || 0) + ' <span style="font-size: 1rem; color: var(--text-muted);">ms</span>';
+      
+      const timeSpan = document.createElement('span');
+      timeSpan.style.fontSize = '1rem';
+      timeSpan.style.color = 'var(--text-muted)';
+      timeSpan.textContent = 'ms';
+      
+      const timeContainer = document.getElementById('val-build-time');
+      timeContainer.textContent = (stats.buildTimeMs || 0) + ' ';
+      timeContainer.appendChild(timeSpan);
+      
       document.getElementById('val-compression').textContent = stats.compressionRatio || '0%';
       document.getElementById('val-timestamp').textContent = 'Last built: ' + (stats.lastBuildTimestamp || 'Just now');
 
       // Render Top Modules Bar Chart
       const container = document.getElementById('module-bars');
-      container.innerHTML = '';
+      container.innerHTML = ''; // safe, clearing children
 
       const modules = stats.modules || [];
       const topModules = modules.slice(0, 6);
       const maxSize = topModules.length > 0 ? topModules[0].size : 1;
 
       if (topModules.length === 0) {
-        container.innerHTML = '<div style="color: var(--text-muted);">No modules found.</div>';
+        const emptyMsg = document.createElement('div');
+        emptyMsg.style.color = 'var(--text-muted)';
+        emptyMsg.textContent = 'No modules found.';
+        container.appendChild(emptyMsg);
         return;
       }
 
@@ -402,15 +515,33 @@ export const DASHBOARD_HTML = `<!DOCTYPE html>
         const percentage = Math.max(5, Math.min(100, Math.round((mod.size / maxSize) * 100)));
         const item = document.createElement('div');
         item.className = 'bar-item';
-        item.innerHTML = \`
-          <div class="bar-meta">
-            <span class="bar-name">\${mod.filePath}</span>
-            <span class="bar-size">\${formatBytes(mod.size)}</span>
-          </div>
-          <div class="bar-track">
-            <div class="bar-fill" style="width: \${percentage}%;"></div>
-          </div>
-        \`;
+        
+        const meta = document.createElement('div');
+        meta.className = 'bar-meta';
+        
+        const nameSpan = document.createElement('span');
+        nameSpan.className = 'bar-name';
+        nameSpan.textContent = mod.filePath;
+        
+        const sizeSpan = document.createElement('span');
+        sizeSpan.className = 'bar-size';
+        sizeSpan.textContent = formatBytes(mod.size);
+        
+        meta.appendChild(nameSpan);
+        meta.appendChild(sizeSpan);
+        
+        const track = document.createElement('div');
+        track.className = 'bar-track';
+        
+        const fill = document.createElement('div');
+        fill.className = 'bar-fill';
+        fill.style.width = percentage + '%';
+        
+        track.appendChild(fill);
+        
+        item.appendChild(meta);
+        item.appendChild(track);
+        
         container.appendChild(item);
       }
     }
@@ -425,25 +556,38 @@ export const DASHBOARD_HTML = `<!DOCTYPE html>
       const ws = new WebSocket(wsUrl);
 
       ws.onopen = function() {
+        badge.className = 'status-badge';
         badge.style.borderColor = 'rgba(52, 211, 153, 0.3)';
         badge.style.color = 'var(--success)';
-        badgeText.textContent = 'HMR Live Active';
+        badgeText.textContent = 'Live Reload Active';
       };
 
       ws.onmessage = function(event) {
         try {
           const data = JSON.parse(event.data);
           if (data.type === 'reload') {
-            // Flash badge
             badge.classList.add('reload-flash');
             badgeText.textContent = 'Live Reloaded!';
             setTimeout(() => {
               badge.classList.remove('reload-flash');
-              badgeText.textContent = 'HMR Live Active';
+              badgeText.textContent = 'Live Reload Active';
             }, 1200);
-
-            // Refresh stats without whole page reload
             fetchMetrics();
+          } else if (data.type === 'status') {
+            if (data.status === 'building') {
+              badge.className = 'status-badge building';
+              badgeText.textContent = 'Building...';
+            } else if (data.status === 'success') {
+              badge.className = 'status-badge';
+              badge.style.borderColor = 'rgba(52, 211, 153, 0.3)';
+              badge.style.color = 'var(--success)';
+              badgeText.textContent = 'Live Reload Active';
+              if (data.stats) renderMetrics(data.stats);
+            } else if (data.status === 'failed') {
+              badge.className = 'status-badge failed';
+              badgeText.textContent = 'Build Failed';
+              if (data.error) renderMetrics({ status: 'failed', error: data.error });
+            }
           }
         } catch (e) {
           console.error(e);

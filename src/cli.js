@@ -127,27 +127,30 @@ ${colors.cyan(colors.bold('=====================================================
 export function printHelp() {
   printBanner();
   console.log(`
+${colors.bold('ZeroPack')} is a 100% zero-dependency JavaScript bundler and dev server.
+It bundles ES Modules, parses modern syntax, and serves your app with Live Reload.
+
 ${colors.bold('USAGE:')}
   ${colors.green('zeropack')} [options]
   ${colors.green('node src/cli.js')} [options]
 
 ${colors.bold('OPTIONS:')}
-  ${colors.yellow('--entry <path>')}     Entry JavaScript/TypeScript file ${colors.dim('(default: src/index.js)')}
+  ${colors.yellow('--entry <path>')}     Entry JavaScript file ${colors.dim('(default: src/index.js)')}
   ${colors.yellow('--out <path>')}       Output bundle path ${colors.dim('(default: dist/bundle.js)')}
-  ${colors.yellow('--serve')}            Start native HTTP static dev server & RFC 6455 WebSocket HMR
+  ${colors.yellow('--serve')}            Start native HTTP static dev server & RFC 6455 Live Reload
   ${colors.yellow('--port <number>')}    Port for the dev server ${colors.dim('(default: 3000)')}
   ${colors.yellow('--minify')}           Minify output bundle (removes comments & whitespace)
   ${colors.yellow('--env <path>')}       Custom path to .env file ${colors.dim('(default: .env)')}
   ${colors.yellow('--help, -h')}         Display this help message
 
 ${colors.bold('EXAMPLES:')}
-  ${colors.dim('# Bundle with minification')}
-  ${colors.cyan('zeropack --entry src/index.js --out dist/bundle.js --minify')}
+  ${colors.dim('# 1. Build for production (minified)')}
+  ${colors.cyan('zeropack --entry src/main.js --out dist/app.js --minify')}
 
-  ${colors.dim('# Start dev server with Live Reload / WebSocket HMR on port 8080')}
+  ${colors.dim('# 2. Start dev server with Live Reload on port 8080')}
   ${colors.cyan('zeropack --entry src/index.js --serve --port 8080')}
 
-  ${colors.dim('# Standalone single-file compiler & verification')}
+  ${colors.dim('# 3. Build the standalone zero-dependency executable')}
   ${colors.cyan('npm run build-standalone')}
 `);
 }
@@ -239,7 +242,7 @@ export async function runCli(args = process.argv.slice(2)) {
   }
 
   // Dynamic import of bundler/server so CLI file can be run independently or concatenated
-  const { buildDependencyGraph } = await import('./parser.js');
+  const { build: buildDependencyGraph, rebuild: incrementalRebuild } = await import('./graph.js');
   const { bundleToFile } = await import('./bundler.js');
 
   const startTime = performance.now();
@@ -271,13 +274,28 @@ export async function runCli(args = process.argv.slice(2)) {
     }
   } catch (error) {
     if (error.name === 'BuildError') {
-      logger.error(`Build failed in ${colors.cyan(error.file)}: ${error.message}`);
+      console.log('');
+      logger.error(`${colors.bgRed(` ${error.category} Failed `)}`);
+      console.log('');
+      console.log(`  ${colors.bold('What:')}   ${colors.white(error.message)}`);
+      
+      let loc = error.file;
+      if (error.line) loc += `:${error.line}`;
+      if (error.column) loc += `:${error.column}`;
+      console.log(`  ${colors.bold('Where:')}  ${colors.cyan(loc)}`);
+      
+      if (error.suggestion) {
+        console.log(`  ${colors.bold('Action:')} ${colors.yellow(error.suggestion)}`);
+      }
+      console.log('');
     } else {
       logger.error(`Build failed: ${error.message}`);
     }
+    
     if (process.env.DEBUG) {
       console.error(error.stack);
     }
+    
     // If the initial build fails, we must exit with 1 regardless of serve mode,
     // because the dev server hasn't been started yet.
     process.exit(1);

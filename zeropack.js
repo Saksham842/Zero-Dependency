@@ -142,27 +142,30 @@ ${colors.cyan(colors.bold('=====================================================
 export function printHelp() {
   printBanner();
   console.log(`
+${colors.bold('ZeroPack')} is a 100% zero-dependency JavaScript bundler and dev server.
+It bundles ES Modules, parses modern syntax, and serves your app with Live Reload.
+
 ${colors.bold('USAGE:')}
   ${colors.green('zeropack')} [options]
   ${colors.green('node src/cli.js')} [options]
 
 ${colors.bold('OPTIONS:')}
-  ${colors.yellow('--entry <path>')}     Entry JavaScript/TypeScript file ${colors.dim('(default: src/index.js)')}
+  ${colors.yellow('--entry <path>')}     Entry JavaScript file ${colors.dim('(default: src/index.js)')}
   ${colors.yellow('--out <path>')}       Output bundle path ${colors.dim('(default: dist/bundle.js)')}
-  ${colors.yellow('--serve')}            Start native HTTP static dev server & RFC 6455 WebSocket HMR
+  ${colors.yellow('--serve')}            Start native HTTP static dev server & RFC 6455 Live Reload
   ${colors.yellow('--port <number>')}    Port for the dev server ${colors.dim('(default: 3000)')}
   ${colors.yellow('--minify')}           Minify output bundle (removes comments & whitespace)
   ${colors.yellow('--env <path>')}       Custom path to .env file ${colors.dim('(default: .env)')}
   ${colors.yellow('--help, -h')}         Display this help message
 
 ${colors.bold('EXAMPLES:')}
-  ${colors.dim('# Bundle with minification')}
-  ${colors.cyan('zeropack --entry src/index.js --out dist/bundle.js --minify')}
+  ${colors.dim('# 1. Build for production (minified)')}
+  ${colors.cyan('zeropack --entry src/main.js --out dist/app.js --minify')}
 
-  ${colors.dim('# Start dev server with Live Reload / WebSocket HMR on port 8080')}
+  ${colors.dim('# 2. Start dev server with Live Reload on port 8080')}
   ${colors.cyan('zeropack --entry src/index.js --serve --port 8080')}
 
-  ${colors.dim('# Standalone single-file compiler & verification')}
+  ${colors.dim('# 3. Build the standalone zero-dependency executable')}
   ${colors.cyan('npm run build-standalone')}
 `);
 }
@@ -286,13 +289,28 @@ export async function runCli(args = process.argv.slice(2)) {
     }
   } catch (error) {
     if (error.name === 'BuildError') {
-      logger.error(`Build failed in ${colors.cyan(error.file)}: ${error.message}`);
+      console.log('');
+      logger.error(`${colors.bgRed(` ${error.category} Failed `)}`);
+      console.log('');
+      console.log(`  ${colors.bold('What:')}   ${colors.white(error.message)}`);
+      
+      let loc = error.file;
+      if (error.line) loc += `:${error.line}`;
+      if (error.column) loc += `:${error.column}`;
+      console.log(`  ${colors.bold('Where:')}  ${colors.cyan(loc)}`);
+      
+      if (error.suggestion) {
+        console.log(`  ${colors.bold('Action:')} ${colors.yellow(error.suggestion)}`);
+      }
+      console.log('');
     } else {
       logger.error(`Build failed: ${error.message}`);
     }
+    
     if (process.env.DEBUG) {
       console.error(error.stack);
     }
+    
     // If the initial build fails, we must exit with 1 regardless of serve mode,
     // because the dev server hasn't been started yet.
     process.exit(1);
@@ -303,11 +321,26 @@ export async function runCli(args = process.argv.slice(2)) {
 // Module: parser.js
 // ==========================================
 export class BuildError extends Error {
-  constructor(message, file) {
+  constructor({ message, file, line, column, suggestion, category }) {
     super(message);
     this.name = 'BuildError';
     this.file = file;
+    this.line = line;
+    this.column = column;
+    this.suggestion = suggestion;
+    this.category = category || 'Build';
   }
+}
+
+export function getLineColumn(code, index) {
+  if (index < 0) index = 0;
+  if (index > code.length) index = code.length;
+  const before = code.substring(0, index);
+  const lines = before.split('\n');
+  return {
+    line: lines.length,
+    column: lines[lines.length - 1].length + 1
+  };
 }
 
 /**
@@ -326,6 +359,7 @@ export function resolveModulePath(fromFile, specifier, rootDir = process.cwd()) 
 
   // 1. Exact file match
   if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
+    checkUnsupportedExtension(candidate);
     return candidate;
   }
 
@@ -343,12 +377,39 @@ export function resolveModulePath(fromFile, specifier, rootDir = process.cwd()) 
     for (const ext of extensions) {
       const indexFile = path.join(candidate, `index${ext}`);
       if (fs.existsSync(indexFile) && fs.statSync(indexFile).isFile()) {
+        checkUnsupportedExtension(indexFile);
         return indexFile;
       }
     }
   }
+  
+  if (!specifier.startsWith('.') && !specifier.startsWith('/')) {
+    throw new BuildError({
+      message: `Unable to resolve bare module specifier '${specifier}'`,
+      file: fromFile,
+      suggestion: 'ZeroPack does not currently support full npm package resolution from node_modules. Please use relative paths for local files.',
+      category: 'Resolution'
+    });
+  }
 
-  throw new BuildError(`Cannot resolve module '${specifier}' requested by '${fromFile}'`, fromFile);
+  throw new BuildError({
+    message: `Cannot resolve module '${specifier}' requested by '${path.relative(rootDir, fromFile)}'`,
+    file: fromFile,
+    suggestion: 'Check that the file exists and that the import path is correct.',
+    category: 'Resolution'
+  });
+}
+
+function checkUnsupportedExtension(filePath) {
+  const ext = path.extname(filePath).toLowerCase();
+  if (ext === '.ts' || ext === '.tsx' || ext === '.jsx') {
+    throw new BuildError({
+      message: `Unsupported syntax`,
+      file: filePath,
+      suggestion: `ZeroPack currently resolves ${ext} files but does not transform TypeScript or JSX.`,
+      category: 'Syntax'
+    });
+  }
 }
 
 /**
@@ -436,7 +497,15 @@ export function transformModuleCode(rawCode, filePath) {
           };
         }
       }
-      throw new BuildError(`Unsupported dynamic import expression`, filePath);
+      const { line, column } = getLineColumn(rawCode, idx);
+      throw new BuildError({
+        message: `Unsupported dynamic import expression`,
+        file: filePath,
+        line,
+        column,
+        suggestion: 'ZeroPack only supports static string literals in dynamic imports, e.g., import("./file.js").',
+        category: 'Syntax'
+      });
     }
 
     let clause = '';
@@ -499,7 +568,15 @@ export function transformModuleCode(rawCode, filePath) {
       }
       if (rawCode[idx] === ';') idx++;
     } else {
-      throw new BuildError(`Expected string literal after 'from'`, filePath);
+      const { line, column } = getLineColumn(rawCode, idx);
+      throw new BuildError({
+        message: `Expected string literal after 'from'`,
+        file: filePath,
+        line,
+        column,
+        suggestion: 'Ensure your import statement has a valid source string (e.g. from "module").',
+        category: 'Syntax'
+      });
     }
 
     dependencies.add(specifier);
@@ -781,7 +858,15 @@ export function transformModuleCode(rawCode, filePath) {
       }
     }
 
-    throw new BuildError(`Unsupported export syntax`, filePath);
+    const { line, column } = getLineColumn(rawCode, idx);
+    throw new BuildError({
+      message: `Unsupported export syntax`,
+      file: filePath,
+      line,
+      column,
+      suggestion: 'ZeroPack supports export default, export const/let/var, export function/class, and export { ... }. Check your syntax.',
+      category: 'Syntax'
+    });
   }
 
   let lastRegexNonWhitespace = '';
@@ -932,7 +1017,12 @@ export function buildDependencyGraph(entryPath, rootDir = process.cwd()) {
   const absoluteEntry = path.isAbsolute(entryPath) ? entryPath : path.resolve(rootDir, entryPath);
 
   if (!fs.existsSync(absoluteEntry)) {
-    throw new BuildError(`Entry file not found: ${absoluteEntry}`, absoluteEntry);
+    throw new BuildError({
+      message: `Entry file not found: ${absoluteEntry}`,
+      file: absoluteEntry,
+      suggestion: 'Ensure the entry path specified in the CLI exists.',
+      category: 'Build'
+    });
   }
 
   let nextId = 0;
@@ -946,7 +1036,12 @@ export function buildDependencyGraph(entryPath, rootDir = process.cwd()) {
     try {
       rawContent = fs.readFileSync(absoluteFilePath, 'utf8');
     } catch (err) {
-      throw new BuildError(`Failed to read file: ${err.message}`, absoluteFilePath);
+      throw new BuildError({
+        message: `Failed to read file: ${err.message}`,
+        file: absoluteFilePath,
+        suggestion: 'Check file permissions or if the file was deleted.',
+        category: 'FileSystem'
+      });
     }
     const hash = crypto.createHash('sha256').update(rawContent).digest('hex');
     const { code, dependencies } = transformModuleCode(rawContent, absoluteFilePath);
@@ -991,7 +1086,12 @@ export function buildDependencyGraph(entryPath, rootDir = process.cwd()) {
       } catch (err) {
         logger.error(`Module resolution failed for '${depSpecifier}' in '${path.relative(rootDir, absoluteFilePath)}': ${err.message}`);
         if (err.name === 'BuildError') throw err;
-        throw new BuildError(`Cannot resolve module '${depSpecifier}' imported from '${path.relative(rootDir, absoluteFilePath)}'`, absoluteFilePath);
+        throw new BuildError({
+          message: `Cannot resolve module '${depSpecifier}' imported from '${path.relative(rootDir, absoluteFilePath)}'`,
+          file: absoluteFilePath,
+          suggestion: 'Check that the dependency exists and the path is correct.',
+          category: 'Resolution'
+        });
       }
     }
 
@@ -1450,6 +1550,35 @@ export const DASHBOARD_HTML = `<!DOCTYPE html>
       background: var(--success);
       box-shadow: 0 0 8px var(--success);
     }
+    
+    .status-badge.building {
+      color: var(--warning);
+      border-color: rgba(251, 191, 36, 0.3);
+      background: rgba(251, 191, 36, 0.1);
+    }
+    
+    .status-badge.building .status-dot {
+      background: var(--warning);
+      box-shadow: 0 0 8px var(--warning);
+      animation: pulse 1s infinite;
+    }
+    
+    .status-badge.failed {
+      color: var(--danger);
+      border-color: rgba(248, 113, 113, 0.3);
+      background: rgba(248, 113, 113, 0.1);
+    }
+    
+    .status-badge.failed .status-dot {
+      background: var(--danger);
+      box-shadow: 0 0 8px var(--danger);
+    }
+    
+    @keyframes pulse {
+      0% { opacity: 1; }
+      50% { opacity: 0.4; }
+      100% { opacity: 1; }
+    }
 
     .reload-flash {
       animation: pulse-flash 1s ease-in-out;
@@ -1476,9 +1605,46 @@ export const DASHBOARD_HTML = `<!DOCTYPE html>
       transition: all 0.2s;
     }
 
-    .btn-refresh:hover {
+    .btn-refresh:hover, .btn-refresh:focus {
       background: var(--card-hover);
       border-color: var(--accent);
+      outline: none;
+    }
+    
+    /* Error Panel */
+    .error-panel {
+      display: none;
+      background: rgba(248, 113, 113, 0.05);
+      border: 1px solid rgba(248, 113, 113, 0.3);
+      border-radius: 12px;
+      padding: 1.5rem;
+      margin-bottom: 2rem;
+      border-left: 4px solid var(--danger);
+    }
+    
+    .error-panel.visible {
+      display: block;
+    }
+    
+    .error-title {
+      color: var(--danger);
+      font-weight: 600;
+      font-size: 1.1rem;
+      margin-bottom: 0.5rem;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    .error-details {
+      font-family: monospace;
+      font-size: 0.9rem;
+      color: var(--text-main);
+      background: rgba(0,0,0,0.2);
+      padding: 1rem;
+      border-radius: 6px;
+      margin-top: 1rem;
+      white-space: pre-wrap;
     }
 
     /* Metrics Grid */
@@ -1636,15 +1802,24 @@ export const DASHBOARD_HTML = `<!DOCTYPE html>
         </div>
       </div>
       <div class="header-actions">
-        <span id="hmr-badge" class="status-badge">
+        <span id="hmr-badge" class="status-badge" role="status" aria-live="polite">
           <span class="status-dot"></span>
-          <span id="hmr-status-text">HMR Live Active</span>
+          <span id="hmr-status-text">Live Reload Active</span>
         </span>
-        <button id="btn-refresh" class="btn-refresh" onclick="fetchMetrics()">
-          <span>🔄</span> Refresh
+        <button id="btn-refresh" class="btn-refresh" onclick="fetchMetrics()" aria-label="Refresh Metrics">
+          <span aria-hidden="true">🔄</span> Refresh
         </button>
       </div>
     </header>
+    
+    <!-- Error Panel -->
+    <div id="error-panel" class="error-panel" role="alert" aria-live="assertive">
+      <div class="error-title">
+        <span aria-hidden="true">❌</span> Build Failed
+      </div>
+      <div id="error-message" style="margin-top: 0.5rem;"></div>
+      <div id="error-details" class="error-details"></div>
+    </div>
 
     <!-- Metrics Cards -->
     <div class="metrics-grid">
@@ -1715,23 +1890,61 @@ export const DASHBOARD_HTML = `<!DOCTYPE html>
     function renderMetrics(stats) {
       if (!stats) return;
 
+      const errorPanel = document.getElementById('error-panel');
+      const metricsGrid = document.querySelector('.metrics-grid');
+      const chartPanel = document.querySelector('.panel');
+
+      if (stats.status === 'failed') {
+        errorPanel.classList.add('visible');
+        metricsGrid.style.opacity = '0.5';
+        chartPanel.style.opacity = '0.5';
+        
+        const err = stats.error || {};
+        document.getElementById('error-message').textContent = err.message || 'Unknown compilation error';
+        
+        let details = '';
+        if (err.category) details += \`Category: \${err.category}\\n\`;
+        if (err.file) details += \`File:     \${err.file}\${err.line ? ':' + err.line : ''}\${err.column ? ':' + err.column : ''}\\n\`;
+        if (err.suggestion) details += \`\\nAction:   \${err.suggestion}\`;
+        
+        document.getElementById('error-details').textContent = details || JSON.stringify(err, null, 2);
+        return;
+      }
+      
+      // Success state
+      errorPanel.classList.remove('visible');
+      metricsGrid.style.opacity = '1';
+      chartPanel.style.opacity = '1';
+
       document.getElementById('val-module-count').textContent = stats.moduleCount || 0;
       document.getElementById('val-bundle-size').textContent = formatBytes(stats.minifiedSize || 0);
       document.getElementById('val-orig-size').textContent = 'Original: ' + formatBytes(stats.originalSize || 0);
-      document.getElementById('val-build-time').innerHTML = (stats.buildTimeMs || 0) + ' <span style="font-size: 1rem; color: var(--text-muted);">ms</span>';
+      
+      const timeSpan = document.createElement('span');
+      timeSpan.style.fontSize = '1rem';
+      timeSpan.style.color = 'var(--text-muted)';
+      timeSpan.textContent = 'ms';
+      
+      const timeContainer = document.getElementById('val-build-time');
+      timeContainer.textContent = (stats.buildTimeMs || 0) + ' ';
+      timeContainer.appendChild(timeSpan);
+      
       document.getElementById('val-compression').textContent = stats.compressionRatio || '0%';
       document.getElementById('val-timestamp').textContent = 'Last built: ' + (stats.lastBuildTimestamp || 'Just now');
 
       // Render Top Modules Bar Chart
       const container = document.getElementById('module-bars');
-      container.innerHTML = '';
+      container.innerHTML = ''; // safe, clearing children
 
       const modules = stats.modules || [];
       const topModules = modules.slice(0, 6);
       const maxSize = topModules.length > 0 ? topModules[0].size : 1;
 
       if (topModules.length === 0) {
-        container.innerHTML = '<div style="color: var(--text-muted);">No modules found.</div>';
+        const emptyMsg = document.createElement('div');
+        emptyMsg.style.color = 'var(--text-muted)';
+        emptyMsg.textContent = 'No modules found.';
+        container.appendChild(emptyMsg);
         return;
       }
 
@@ -1739,15 +1952,33 @@ export const DASHBOARD_HTML = `<!DOCTYPE html>
         const percentage = Math.max(5, Math.min(100, Math.round((mod.size / maxSize) * 100)));
         const item = document.createElement('div');
         item.className = 'bar-item';
-        item.innerHTML = \`
-          <div class="bar-meta">
-            <span class="bar-name">\${mod.filePath}</span>
-            <span class="bar-size">\${formatBytes(mod.size)}</span>
-          </div>
-          <div class="bar-track">
-            <div class="bar-fill" style="width: \${percentage}%;"></div>
-          </div>
-        \`;
+        
+        const meta = document.createElement('div');
+        meta.className = 'bar-meta';
+        
+        const nameSpan = document.createElement('span');
+        nameSpan.className = 'bar-name';
+        nameSpan.textContent = mod.filePath;
+        
+        const sizeSpan = document.createElement('span');
+        sizeSpan.className = 'bar-size';
+        sizeSpan.textContent = formatBytes(mod.size);
+        
+        meta.appendChild(nameSpan);
+        meta.appendChild(sizeSpan);
+        
+        const track = document.createElement('div');
+        track.className = 'bar-track';
+        
+        const fill = document.createElement('div');
+        fill.className = 'bar-fill';
+        fill.style.width = percentage + '%';
+        
+        track.appendChild(fill);
+        
+        item.appendChild(meta);
+        item.appendChild(track);
+        
         container.appendChild(item);
       }
     }
@@ -1762,25 +1993,38 @@ export const DASHBOARD_HTML = `<!DOCTYPE html>
       const ws = new WebSocket(wsUrl);
 
       ws.onopen = function() {
+        badge.className = 'status-badge';
         badge.style.borderColor = 'rgba(52, 211, 153, 0.3)';
         badge.style.color = 'var(--success)';
-        badgeText.textContent = 'HMR Live Active';
+        badgeText.textContent = 'Live Reload Active';
       };
 
       ws.onmessage = function(event) {
         try {
           const data = JSON.parse(event.data);
           if (data.type === 'reload') {
-            // Flash badge
             badge.classList.add('reload-flash');
             badgeText.textContent = 'Live Reloaded!';
             setTimeout(() => {
               badge.classList.remove('reload-flash');
-              badgeText.textContent = 'HMR Live Active';
+              badgeText.textContent = 'Live Reload Active';
             }, 1200);
-
-            // Refresh stats without whole page reload
             fetchMetrics();
+          } else if (data.type === 'status') {
+            if (data.status === 'building') {
+              badge.className = 'status-badge building';
+              badgeText.textContent = 'Building...';
+            } else if (data.status === 'success') {
+              badge.className = 'status-badge';
+              badge.style.borderColor = 'rgba(52, 211, 153, 0.3)';
+              badge.style.color = 'var(--success)';
+              badgeText.textContent = 'Live Reload Active';
+              if (data.stats) renderMetrics(data.stats);
+            } else if (data.status === 'failed') {
+              badge.className = 'status-badge failed';
+              badgeText.textContent = 'Build Failed';
+              if (data.error) renderMetrics({ status: 'failed', error: data.error });
+            }
           }
         } catch (e) {
           console.error(e);
@@ -1991,6 +2235,7 @@ export async function startDevServer(options = {}) {
   // Initial / Rebuild compilation
   function compile() {
     isBuilding = true;
+    broadcast({ type: 'status', status: 'building' });
     try {
       const graph = buildDependencyGraph(entry, rootDir);
       const outputPath = path.isAbsolute(out) ? out : path.join(rootDir, out);
@@ -1998,15 +2243,31 @@ export async function startDevServer(options = {}) {
       result.stats.status = 'success';
       currentStats = result.stats;
       logger.hmr(`Rebuilt bundle: ${colors.green(result.size + ' bytes')} (${colors.gray(result.hash.slice(0, 10))})`);
+      broadcast({ type: 'status', status: 'success', stats: currentStats });
       return result;
     } catch (err) {
       logger.error(`Rebuild error: ${err.message}`);
+      let errorPayload;
+      if (err.name === 'BuildError') {
+        errorPayload = {
+          message: err.message,
+          file: err.file,
+          line: err.line,
+          column: err.column,
+          suggestion: err.suggestion,
+          category: err.category
+        };
+      } else {
+        errorPayload = { message: err.message };
+      }
+      
       if (currentStats) {
         currentStats.status = 'failed';
-        currentStats.error = err.message;
+        currentStats.error = errorPayload;
       } else {
-        currentStats = { status: 'failed', error: err.message };
+        currentStats = { status: 'failed', error: errorPayload };
       }
+      broadcast({ type: 'status', status: 'failed', error: errorPayload });
       return null;
     } finally {
       isBuilding = false;
