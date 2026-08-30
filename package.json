@@ -12,6 +12,7 @@
     "dev": "node src/cli.js --serve",
     "build": "node src/cli.js --minify",
     "build-standalone": "node src/build-tools.js",
+    "test": "node --test test/*.test.js",
     "verify": "node src/build-tools.js --verify"
   },
   "keywords": [

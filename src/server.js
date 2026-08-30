@@ -38,6 +38,37 @@ export function getMimeType(filePath) {
   return MIME_TYPES[ext] || 'application/octet-stream';
 }
 
+export function isPathInsideRoot(rootDir, candidatePath) {
+  const resolvedRoot = path.resolve(rootDir);
+  const resolvedCandidate = path.resolve(candidatePath);
+  const relative = path.relative(resolvedRoot, resolvedCandidate);
+  return relative === '' || (!!relative && !relative.startsWith('..') && !path.isAbsolute(relative));
+}
+
+export function resolveStaticFilePath(rootDir, requestPathname) {
+  let pathname = requestPathname || '/';
+  pathname = pathname.replace(/\\/g, '/');
+
+  if (pathname === '/' || pathname === '') {
+    pathname = '/index.html';
+  }
+
+  const relativePath = pathname.replace(/^\/+/, '');
+  const staticRoots = [rootDir, path.join(rootDir, 'public'), path.join(rootDir, 'dist')];
+
+  for (const staticRoot of staticRoots) {
+    const candidatePath = path.resolve(staticRoot, relativePath);
+    if (!isPathInsideRoot(staticRoot, candidatePath)) {
+      continue;
+    }
+    if (fs.existsSync(candidatePath) && fs.statSync(candidatePath).isFile()) {
+      return candidatePath;
+    }
+  }
+
+  return null;
+}
+
 // -----------------------------------------------------------------------------
 // 2. RFC 6455 WebSocket Frame Encoder & Parser
 // -----------------------------------------------------------------------------
@@ -134,6 +165,7 @@ export async function startDevServer(options = {}) {
     out = 'dist/bundle.js',
     minify = false,
     rootDir = process.cwd(),
+    host = '127.0.0.1',
     stats: initialStats = null
   } = options;
 
@@ -158,7 +190,8 @@ export async function startDevServer(options = {}) {
   function compile() {
     try {
       const graph = buildDependencyGraph(entry, rootDir);
-      const result = bundleToFile(graph, out, { minify, hmr: true });
+      const outputPath = path.isAbsolute(out) ? out : path.join(rootDir, out);
+      const result = bundleToFile(graph, outputPath, { minify, hmr: true });
       currentStats = result.stats;
       logger.hmr(`Rebuilt bundle: ${colors.green(result.size + ' bytes')} (${colors.gray(result.hash.slice(0, 10))})`);
       return result;
@@ -174,8 +207,15 @@ export async function startDevServer(options = {}) {
 
   // HTTP Server
   const server = http.createServer((req, res) => {
-    const parsedUrl = new URL(req.url, `http://localhost:${port}`);
-    let pathname = decodeURIComponent(parsedUrl.pathname);
+    let pathname;
+    try {
+      const parsedUrl = new URL(req.url, `http://localhost:${port}`);
+      pathname = decodeURIComponent(parsedUrl.pathname);
+    } catch (err) {
+      res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end('400 Bad Request');
+      return;
+    }
 
     // -------------------------------------------------------------------------
     // Route 1: Built-in ZeroPack Dashboard UI (/__zeropack)
@@ -202,26 +242,10 @@ export async function startDevServer(options = {}) {
       return;
     }
 
-    // Route root to index.html
-    if (pathname === '/' || pathname === '') {
-      pathname = '/index.html';
-    }
-
-    let filePath = path.join(rootDir, pathname);
-
-    // If file doesn't exist, check inside public/ or dist/
-    if (!fs.existsSync(filePath)) {
-      const publicPath = path.join(rootDir, 'public', pathname);
-      const distPath = path.join(rootDir, 'dist', pathname);
-      if (fs.existsSync(publicPath)) {
-        filePath = publicPath;
-      } else if (fs.existsSync(distPath)) {
-        filePath = distPath;
-      }
-    }
+    const filePath = resolveStaticFilePath(rootDir, pathname);
 
     // Serve file if exists
-    if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
+    if (filePath) {
       const mimeType = getMimeType(filePath);
       let content = fs.readFileSync(filePath);
 
@@ -354,11 +378,14 @@ export async function startDevServer(options = {}) {
   }
 
   const watchers = [];
-  if (fs.existsSync(watchDir)) {
-    watchers.push(fs.watch(watchDir, { recursive: true }, handleWatchEvent));
-  }
-  if (fs.existsSync(publicDir)) {
-    watchers.push(fs.watch(publicDir, { recursive: true }, handleWatchEvent));
+
+  function startWatchers() {
+    if (fs.existsSync(watchDir)) {
+      watchers.push(fs.watch(watchDir, { recursive: true }, handleWatchEvent));
+    }
+    if (fs.existsSync(publicDir)) {
+      watchers.push(fs.watch(publicDir, { recursive: true }, handleWatchEvent));
+    }
   }
 
   function closeServer() {
@@ -372,10 +399,13 @@ export async function startDevServer(options = {}) {
   }
 
   return new Promise((resolve, reject) => {
-    server.listen(port, () => {
-      logger.server(`Development server running at: ${colors.green(colors.bold(`http://localhost:${port}/`))}`);
-      logger.server(`Developer Dashboard active at: ${colors.brightCyan(colors.bold(`http://localhost:${port}/__zeropack`))}`);
-      logger.server(`HMR WebSocket endpoint active at: ${colors.cyan(colors.bold(`ws://localhost:${port}/__zeropack_hmr`))}`);
+    server.listen(port, host, () => {
+      const address = server.address();
+      const actualPort = typeof address === 'object' && address ? address.port : port;
+      startWatchers();
+      logger.server(`Development server running at: ${colors.green(colors.bold(`http://${host}:${actualPort}/`))}`);
+      logger.server(`Developer Dashboard active at: ${colors.brightCyan(colors.bold(`http://${host}:${actualPort}/__zeropack`))}`);
+      logger.server(`HMR WebSocket endpoint active at: ${colors.cyan(colors.bold(`ws://${host}:${actualPort}/__zeropack_hmr`))}`);
       logger.info(`Watching directory: ${colors.gray(watchDir)}`);
       resolve({ server, broadcast, close: closeServer });
     });

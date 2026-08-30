@@ -50,6 +50,7 @@ export function resolveModulePath(fromFile, specifier, rootDir = process.cwd()) 
 export function transformModuleCode(rawCode, filePath) {
   const dependencies = new Set();
   let code = rawCode;
+  const importTempVars = new Map();
 
   // If JSON file, wrap as module export
   if (filePath.endsWith('.json')) {
@@ -82,10 +83,16 @@ export function transformModuleCode(rawCode, filePath) {
     (_, importClause, quote, specifier) => {
       dependencies.add(specifier);
       const clause = importClause.trim();
-      const specifierHash = crypto.createHash('sha256').update(specifier).digest('hex').slice(0, 8);
-      const tempVar = `__mod_${specifierHash}`;
+      let tempVar = importTempVars.get(specifier);
+      let requireLine = '';
+      if (!tempVar) {
+        const specifierHash = crypto.createHash('sha256').update(specifier).digest('hex').slice(0, 8);
+        tempVar = `__mod_${specifierHash}`;
+        importTempVars.set(specifier, tempVar);
+        requireLine = `const ${tempVar} = require('${specifier}');`;
+      }
 
-      let lines = [`const ${tempVar} = require('${specifier}');`];
+      let lines = requireLine ? [requireLine] : [];
 
       if (clause.startsWith('{')) {
         // Named imports: `import { a, b as c } from '...'`
@@ -138,14 +145,14 @@ export function transformModuleCode(rawCode, filePath) {
   code = code.replace(
     /(?:^|\n)\s*export\s+default\s+function\s+([a-zA-Z_$][0-9a-zA-Z_$]*)\s*\(([\s\S]*?)\)\s*\{/g,
     (_, funcName, params) => {
-      return `\nfunction ${funcName}(${params}) {\nmodule.exports.default = ${funcName};\n`;
+      return `\nmodule.exports.default = ${funcName};\nfunction ${funcName}(${params}) {`;
     }
   );
 
   code = code.replace(
     /(?:^|\n)\s*export\s+default\s+class\s+([a-zA-Z_$][0-9a-zA-Z_$]*)([\s\S]*?)\{/g,
     (_, className, rest) => {
-      return `\nclass ${className}${rest}{\n`;
+      return `\nconst ${className} = module.exports.default = class ${className}${rest}{`;
     }
   );
 
@@ -174,7 +181,7 @@ export function transformModuleCode(rawCode, filePath) {
   code = code.replace(
     /(?:^|\n)\s*export\s+function\s+([a-zA-Z_$][0-9a-zA-Z_$]*)\s*\(([\s\S]*?)\)\s*\{/g,
     (_, funcName, params) => {
-      return `\nfunction ${funcName}(${params}) {\nmodule.exports.${funcName} = ${funcName};\n`;
+      return `\nmodule.exports.${funcName} = ${funcName};\nfunction ${funcName}(${params}) {`;
     }
   );
 
@@ -182,7 +189,7 @@ export function transformModuleCode(rawCode, filePath) {
   code = code.replace(
     /(?:^|\n)\s*export\s+class\s+([a-zA-Z_$][0-9a-zA-Z_$]*)([\s\S]*?)\{/g,
     (_, className, rest) => {
-      return `\nclass ${className}${rest}{\n`;
+      return `\nconst ${className} = module.exports.${className} = class ${className}${rest}{`;
     }
   );
 
