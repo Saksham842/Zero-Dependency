@@ -138,7 +138,9 @@ ${colors.bold('OPTIONS:')}
   ${colors.yellow('--entry <path>')}     Entry JavaScript file ${colors.dim('(default: src/index.js)')}
   ${colors.yellow('--out <path>')}       Output bundle path ${colors.dim('(default: dist/bundle.js)')}
   ${colors.yellow('--serve')}            Start native HTTP static dev server & RFC 6455 Live Reload
+  ${colors.yellow('--watch')}            Watch source files and rebuild on change (no server)
   ${colors.yellow('--port <number>')}    Port for the dev server ${colors.dim('(default: 3000)')}
+  ${colors.yellow('--host <address>')}   Host address for dev server ${colors.dim('(default: 127.0.0.1)')}
   ${colors.yellow('--minify')}           Minify output bundle (removes comments & whitespace)
   ${colors.yellow('--env <path>')}       Custom path to .env file ${colors.dim('(default: .env)')}
   ${colors.yellow('--help, -h')}         Display this help message
@@ -184,6 +186,14 @@ export function parseCliArgs(args = process.argv.slice(2)) {
       type: 'string',
       default: '.env'
     },
+    watch: {
+      type: 'boolean',
+      default: false
+    },
+    host: {
+      type: 'string',
+      default: '127.0.0.1'
+    },
     help: {
       type: 'boolean',
       short: 'h',
@@ -209,7 +219,9 @@ export function parseCliArgs(args = process.argv.slice(2)) {
       entry,
       out: values.out,
       serve: Boolean(values.serve),
+      watch: Boolean(values.watch),
       port: parseInt(values.port, 10) || 3000,
+      host: values.host || '127.0.0.1',
       minify: Boolean(values.minify),
       env: values.env,
       help: Boolean(values.help),
@@ -265,12 +277,38 @@ export async function runCli(args = process.argv.slice(2)) {
       const { startDevServer } = await import('./server.js');
       await startDevServer({
         port: config.port,
+        host: config.host,
         entry: config.entry,
         out: config.out,
         minify: config.minify,
         rootDir: process.cwd(),
         stats: result.stats
       });
+    } else if (config.watch) {
+      // --watch mode: rebuild on file change without starting the HTTP server
+      const fs = await import('node:fs');
+      const watchDir = path.resolve(process.cwd(), path.dirname(config.entry));
+      logger.info(`Watching ${colors.cyan(watchDir)} for changes...`);
+      let debounceTimer = null;
+      const watcher = fs.default.watch(watchDir, { recursive: true }, (_event, filename) => {
+        if (!filename || filename.endsWith('bundle.js')) return;
+        if (debounceTimer) clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(async () => {
+          debounceTimer = null;
+          logger.hmr(`File changed: ${colors.cyan(filename)} — rebuilding...`);
+          try {
+            const t = performance.now();
+            const g = buildDependencyGraph(config.entry);
+            const r = bundleToFile(g, config.out, { minify: config.minify });
+            logger.success(`Rebuilt in ${colors.bold((performance.now() - t).toFixed(0) + 'ms')} (${colors.cyan(r.size + ' bytes')})`);
+          } catch (err) {
+            logger.error(`Watch rebuild failed: ${err.message}`);
+          }
+        }, 100);
+      });
+      watcher.on('error', (err) => logger.warn(`Watcher error: ${err.message}`));
+      // Keep process alive
+      process.on('SIGINT', () => { watcher.close(); process.exit(0); });
     }
   } catch (error) {
     if (error.name === 'BuildError') {
