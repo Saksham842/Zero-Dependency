@@ -1,6 +1,6 @@
 # ZeroPack — Native Node.js Standard Library Architecture
 
-ZeroPack is a full-featured JavaScript bundler, minifier, and HMR dev server engineered with **STRICTLY 0 third-party runtime dependencies**. Every capability is built directly on Node.js core libraries.
+ZeroPack is a full-featured JavaScript bundler, minifier, and Live Reload dev server engineered with **STRICTLY 0 third-party runtime dependencies**. Every capability is built directly on Node.js core libraries.
 
 ---
 
@@ -17,6 +17,8 @@ ZeroPack is a full-featured JavaScript bundler, minifier, and HMR dev server eng
 | **`ws`** / **`socket.io`** | `node:http` + `node:crypto` + `node:net` | Full RFC 6455 WebSocket server implementation handling HTTP 101 Switching Protocols upgrade handshakes (SHA-1 + Sec-WebSocket-Key magic string), frame encoding (opcodes, FIN bits, unmasked server-to-client frames), and client mask decoding. |
 | **`mime`** / **`mime-types`** | Custom Native MIME Mapping Dictionary | Direct lookup table resolving 15+ web MIME types (`.html`, `.js`, `.css`, `.json`, `.png`, `.svg`, `.wasm`, `.woff2`, etc.). |
 | **`crypto-js`** | `node:crypto` | Cryptographic module hashing using `crypto.createHash('sha256')` for modules and reproducible build verification, plus `sha1` for RFC 6455 handshakes. |
+| **`jest`** / **`mocha`** / **`vitest`** | `node:test` + `node:assert/strict` | Native test runner (Node.js >= 18) with full async test support, structured diagnostics, and no third-party test framework required. |
+| **`postcss`** / **`css-loader`** | `node:fs` + Native CSS String Parser | CSS files imported via `import './style.css'` are read with `node:fs`, minified with a native comment-stripping/whitespace-collapsing parser, and injected at runtime via `document.createElement('style')`. |
 
 ---
 
@@ -40,7 +42,7 @@ npm run build-standalone
 # Verify reproducible bit-for-bit builds
 npm run verify
 
-# Start development server with Live Reload HMR
+# Start development server with Live Reload
 npm run dev
 
 # Production build with minification

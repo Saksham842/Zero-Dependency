@@ -118,14 +118,27 @@ export function minifyCode(code) {
 
     // Handle whitespace outside strings
     if (/\s/.test(char)) {
-      // Collapse multiple whitespace/newlines into a single space or omit if adjacent to operators
-      const lastChar = output.slice(-1);
-      if (lastChar && !/[()\[\]{},;:+\-*\/=<>!&|%?]/.test(lastChar)) {
-        if (!output.endsWith(' ')) {
-          output += ' ';
+      let wsRun = '';
+      while (i < len && /\s/.test(text[i])) {
+        wsRun += text[i];
+        i++;
+      }
+      
+      const hasNewline = wsRun.includes('\n') || wsRun.includes('\r');
+      const match = output.match(/(?:^|[^a-zA-Z0-9_$])([a-zA-Z0-9_$]+)$/);
+      const lastWord = match ? match[1] : '';
+      
+      if (hasNewline && (lastWord === 'return' || lastWord === 'throw' || lastWord === 'break' || lastWord === 'continue')) {
+        output += ';';
+      } else {
+        // Collapse multiple whitespace/newlines into a single space or omit if adjacent to operators
+        const lastChar = output.slice(-1);
+        if (lastChar && !/[()\[\]{},;:+\-*\/=<>!&|%?]/.test(lastChar)) {
+          if (!output.endsWith(' ')) {
+            output += ' ';
+          }
         }
       }
-      i++;
       continue;
     }
 

@@ -7,12 +7,17 @@
   "bin": {
     "zeropack": "./zeropack.js"
   },
+  "engines": {
+    "node": ">=18.3.0"
+  },
   "scripts": {
     "start": "node src/cli.js",
     "dev": "node src/cli.js --serve",
     "build": "node src/cli.js --minify",
     "build-standalone": "node src/build-tools.js",
-    "verify": "node src/build-tools.js --verify"
+    "test": "node --test test/*.test.js",
+    "verify": "node src/build-tools.js --verify",
+    "check": "npm test && npm run verify"
   },
   "keywords": [
     "bundler",
