@@ -42,91 +42,164 @@ export default {
 `;
   fs.writeFileSync(path.join(srcDir, 'utils.js'), utilsCode, 'utf8');
 
-  // 3. Stylesheet Module
-  const cssCode = `/* ZeroPack sample app styles */
+  const cssCode = `/* ZeroPack sample app styles — bundled natively with zero dependencies */
+@import url('https://fonts.googleapis.com/css2?family=Jost:wght@300;400;500;600;700&family=Overpass+Mono:wght@400;600&display=swap');
+
 :root {
-  --bg: #0b0f19;
-  --card: #111827;
-  --border: #1f2937;
-  --accent: #38bdf8;
-  --accent2: #818cf8;
-  --text: #f1f5f9;
-  --muted: #94a3b8;
+  /* Contemporary Design System Tokens */
+  --color-primary: #C800DF;
+  --color-secondary: #E60076;
+  --color-success: #16A34A;
+  --color-warning: #D97706;
+  --color-danger: #DC2626;
+  
+  --color-surface-base: #09090b;
+  --color-surface-card: #18181b;
+  --color-surface-hover: #27272a;
+  --color-border: #3f3f46;
+  
+  --color-text-base: #f4f4f5;
+  --color-text-muted: #a1a1aa;
+  
+  --font-sans: 'Jost', system-ui, sans-serif;
+  --font-mono: 'Overpass Mono', monospace;
+  
+  --space-2: 0.5rem;
+  --space-4: 1rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  
+  --radius-sm: 8px;
+  --radius-md: 16px;
+  --radius-lg: 24px;
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 body {
-  background: var(--bg);
-  color: var(--text);
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background-color: var(--color-surface-base);
+  color: var(--color-text-base);
+  font-family: var(--font-sans);
+  line-height: 1.6;
   min-height: 100vh;
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: var(--space-4);
+  -webkit-font-smoothing: antialiased;
 }
 
-.zp-card {
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  padding: 2rem;
-  max-width: 580px;
+h1, h2 {
+  font-family: var(--font-sans);
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.text-gradient {
+  background: linear-gradient(135deg, var(--color-primary), var(--color-secondary));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: var(--color-primary); /* fallback */
+}
+
+/* Bento Grid Layout */
+.bento-container {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: var(--space-6);
   width: 100%;
-  box-shadow: 0 20px 40px rgba(0,0,0,0.4);
-  animation: fadeUp 0.4s ease;
+  max-width: 900px;
+  animation: fadeUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  opacity: 0;
 }
 
 @keyframes fadeUp {
-  from { opacity: 0; transform: translateY(16px); }
-  to   { opacity: 1; transform: translateY(0); }
+  0% { opacity: 0; transform: translateY(20px); }
+  100% { opacity: 1; transform: translateY(0); }
 }
 
-.zp-card__header {
+/* Components */
+.bento-card {
+  background-color: var(--color-surface-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-6);
   display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 1.25rem;
+  flex-direction: column;
+  transition: transform 0.2s ease, background-color 0.2s ease, border-color 0.2s ease;
+  position: relative;
+  overflow: hidden;
 }
 
-.zp-card__icon { font-size: 2rem; }
-
-.zp-card__title {
-  font-size: 1.75rem;
-  font-weight: 700;
-  background: linear-gradient(to right, var(--accent), var(--accent2));
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
+.bento-card:hover {
+  background-color: var(--color-surface-hover);
+  border-color: var(--color-primary);
+  transform: translateY(-2px);
 }
 
-.zp-card__subtitle { color: var(--muted); line-height: 1.6; margin-bottom: 1.25rem; }
-
-.zp-card__metric {
-  background: #090d16;
-  border-left: 4px solid var(--accent);
-  border-radius: 8px;
-  padding: 0.875rem 1rem;
-  margin-bottom: 1.25rem;
-  font-size: 0.95rem;
-  color: var(--accent);
+.bento-card:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 4px;
 }
 
-.zp-card__badges {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+.bento-card--featured {
+  grid-column: 1 / -1;
+  background: linear-gradient(145deg, var(--color-surface-card), #1e1b2e);
 }
 
-.zp-badge {
-  background: rgba(56,189,248,0.08);
-  border: 1px solid rgba(56,189,248,0.2);
-  color: var(--accent);
-  border-radius: 9999px;
-  padding: 4px 12px;
-  font-size: 0.8rem;
+.card-icon {
+  font-size: 2.5rem;
+  margin-bottom: var(--space-4);
+}
+
+.card-title {
+  font-size: 1.5rem;
+  margin-bottom: var(--space-2);
+}
+
+.card-desc {
+  color: var(--color-text-muted);
+  font-size: 1rem;
+  margin-bottom: var(--space-6);
+  flex-grow: 1;
+}
+
+.metric-box {
+  background-color: rgba(200, 0, 223, 0.1);
+  border-left: 4px solid var(--color-primary);
+  border-radius: var(--radius-sm);
+  padding: var(--space-4);
+  font-family: var(--font-mono);
+  font-size: 0.9rem;
+  color: var(--color-text-base);
+}
+
+.metric-value {
+  color: var(--color-primary);
   font-weight: 600;
 }
-`;
+
+.badge-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: auto;
+}
+
+.badge {
+  background-color: var(--color-surface-base);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+  font-weight: 500;
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-family: var(--font-mono);
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+}
+\`;
   fs.writeFileSync(path.join(srcDir, 'styles.css'), cssCode, 'utf8');
 
   // 4. UI Component Module
@@ -139,26 +212,55 @@ export function renderApp(containerId = 'app') {
   const area = calculateCircleArea(5).toFixed(2);
   const greeting = formatGreeting('Hackathon Innovator');
 
-  container.innerHTML = \`
-    <div class="zp-card">
-      <div class="zp-card__header">
-        <span class="zp-card__icon">⚡</span>
-        <h1 class="zp-card__title">ZeroPack Runtime Active</h1>
-      </div>
-      <p class="zp-card__subtitle">\${greeting}</p>
-      <div class="zp-card__metric">
-        <strong>Live Calculation:</strong> Circle Area (r=5) = \${area}
-      </div>
-      <div class="zp-card__badges">
-        <span class="zp-badge">🛡️ 0 Dependencies</span>
-        <span class="zp-badge">🚀 RFC 6455 HMR</span>
-        <span class="zp-badge">📦 Deterministic IIFE</span>
-        <span class="zp-badge">🎨 CSS Bundling</span>
-      </div>
-    </div>
-  \`;
+  container.innerHTML = \\\`
+    <main class="bento-container" role="main" aria-label="ZeroPack Features Dashboard">
+      
+      <section class="bento-card bento-card--featured" tabindex="0">
+        <div class="card-icon" aria-hidden="true">⚡</div>
+        <h1 class="card-title text-gradient">ZeroPack is Active</h1>
+        <p class="card-desc">\${greeting}</p>
+        
+        <div class="metric-box" aria-live="polite">
+          System Status: <span class="metric-value">Online</span><br/>
+          Live Calculation (r=5): <span class="metric-value">\${area}</span>
+        </div>
+      </section>
+
+      <section class="bento-card" tabindex="0">
+        <div class="card-icon" aria-hidden="true">📦</div>
+        <h2 class="card-title">Zero Dependencies</h2>
+        <p class="card-desc">Built purely with Node.js standard libraries. No npm packages required.</p>
+        <div class="badge-group">
+          <span class="badge">node:fs</span>
+          <span class="badge">node:http</span>
+          <span class="badge">node:crypto</span>
+        </div>
+      </section>
+
+      <section class="bento-card" tabindex="0">
+        <div class="card-icon" aria-hidden="true">🚀</div>
+        <h2 class="card-title">RFC 6455 HMR</h2>
+        <p class="card-desc">Native WebSocket implementation serving blazing fast live reloads directly to the browser.</p>
+        <div class="badge-group">
+          <span class="badge">WebSocket</span>
+          <span class="badge">SHA-1</span>
+        </div>
+      </section>
+      
+      <section class="bento-card" tabindex="0">
+        <div class="card-icon" aria-hidden="true">🎨</div>
+        <h2 class="card-title">CSS Bundling</h2>
+        <p class="card-desc">Modern CSS is parsed, minified, and injected dynamically via the JS runtime.</p>
+        <div class="badge-group">
+          <span class="badge">Minified</span>
+          <span class="badge">Bento Grid</span>
+        </div>
+      </section>
+
+    </main>
+  \\\`;
 }
-`;
+\`;
   fs.writeFileSync(path.join(srcDir, 'components.js'), componentsCode, 'utf8');
 
   // 5. Main Entry Point
@@ -187,18 +289,14 @@ if (typeof window !== 'undefined') {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ZeroPack - Zero-Dependency Bundler</title>
+  <title>ZeroPack - Contemporary UI</title>
   <style>
     body {
       margin: 0;
-      background: #0b0f19;
-      color: #f1f5f9;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
+      background: #09090b; /* Match var(--color-surface-base) */
+      color: #f4f4f5;      /* Match var(--color-text-base) */
+      /* Prevent FOUC before CSS injects */
+      font-family: system-ui, sans-serif;
     }
   </style>
 </head>

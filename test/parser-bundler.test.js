@@ -177,8 +177,8 @@ test('regression: bundled demo render path executes without undefined imports', 
 
   vm.runInNewContext(result.code, sandbox);
 
-  assert.match(container.innerHTML, /ZeroPack Runtime Active/);
-  assert.match(container.innerHTML, /Circle Area/);
+  assert.match(container.innerHTML, /ZeroPack is Active/);
+  assert.match(container.innerHTML, /Live Calculation/);
 });
 
 // CSS Bundling Tests
