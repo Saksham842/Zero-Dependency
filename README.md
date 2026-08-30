@@ -77,6 +77,8 @@ Every industry-standard npm library has been replaced with a native Node.js core
 - 🔄 **Native RFC 6455 WebSocket HMR:** Real-time live reloading without external WebSocket engines.
 - 🗜️ **Built-in Minification:** State-machine lexer that strips comments and whitespace without corrupting template strings or regex literals.
 - 🔒 **100% Deterministic Reproducible Builds:** Modules are sorted lexicographically by normalized paths to guarantee bit-for-bit identical SHA-256 output across runs.
+- 🛡️ **Robust Error Handling:** Comprehensive `BuildError` diagnostics with explicit process exit codes (`1` on initial failure) and resilient dev server state preservation.
+- 🔄 **Stateful Watch Rebuilds:** Dev server gracefully queues concurrent file system changes and retains previous bundle outputs upon compilation failure.
 - 📦 **Single-File Distribution:** Compiles the entire bundler into an independent, standalone executable `zeropack.js`.
 - 🌐 **Static Dev Server:** Built-in HTTP server with MIME auto-detection and automatic client HMR script injection.
 

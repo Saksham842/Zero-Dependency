@@ -270,13 +270,17 @@ export async function runCli(args = process.argv.slice(2)) {
       });
     }
   } catch (error) {
-    logger.error(`Build failed: ${error.message}`);
+    if (error.name === 'BuildError') {
+      logger.error(`Build failed in ${colors.cyan(error.file)}: ${error.message}`);
+    } else {
+      logger.error(`Build failed: ${error.message}`);
+    }
     if (process.env.DEBUG) {
       console.error(error.stack);
     }
-    if (!config.serve) {
-      process.exit(1);
-    }
+    // If the initial build fails, we must exit with 1 regardless of serve mode,
+    // because the dev server hasn't been started yet.
+    process.exit(1);
   }
 }
 

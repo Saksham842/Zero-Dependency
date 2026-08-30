@@ -186,18 +186,41 @@ export async function startDevServer(options = {}) {
     }
   }
 
+  let isBuilding = false;
+  let pendingBuild = false;
+
   // Initial / Rebuild compilation
   function compile() {
+    isBuilding = true;
     try {
       const graph = buildDependencyGraph(entry, rootDir);
       const outputPath = path.isAbsolute(out) ? out : path.join(rootDir, out);
       const result = bundleToFile(graph, outputPath, { minify, hmr: true });
+      result.stats.status = 'success';
       currentStats = result.stats;
       logger.hmr(`Rebuilt bundle: ${colors.green(result.size + ' bytes')} (${colors.gray(result.hash.slice(0, 10))})`);
       return result;
     } catch (err) {
       logger.error(`Rebuild error: ${err.message}`);
+      if (currentStats) {
+        currentStats.status = 'failed';
+        currentStats.error = err.message;
+      } else {
+        currentStats = { status: 'failed', error: err.message };
+      }
       return null;
+    } finally {
+      isBuilding = false;
+      if (pendingBuild) {
+        pendingBuild = false;
+        process.nextTick(() => {
+          const success = compile();
+          if (success) {
+            broadcast({ type: 'reload', file: 'pending-rebuild', timestamp: Date.now() });
+            logger.hmr(`Dispatched ${colors.green('RELOAD')} frame to ${colors.bold(activeSockets.size)} client(s)`);
+          }
+        });
+      }
     }
   }
 
@@ -305,8 +328,26 @@ export async function startDevServer(options = {}) {
 
   // RFC 6455 WebSocket Upgrade Handler
   server.on('upgrade', (req, socket, head) => {
+    // Check HTTP method and valid URL
+    if (req.method !== 'GET') {
+      socket.write('HTTP/1.1 405 Method Not Allowed\r\n\r\n');
+      socket.destroy();
+      return;
+    }
+    if (req.url !== '/__zeropack_hmr') {
+      socket.write('HTTP/1.1 404 Not Found\r\n\r\n');
+      socket.destroy();
+      return;
+    }
+    // Check required upgrade headers
+    if (!req.headers.upgrade || req.headers.upgrade.toLowerCase() !== 'websocket') {
+      socket.write('HTTP/1.1 400 Bad Request\r\n\r\n');
+      socket.destroy();
+      return;
+    }
     const secKey = req.headers['sec-websocket-key'];
     if (!secKey) {
+      socket.write('HTTP/1.1 400 Bad Request\r\n\r\n');
       socket.destroy();
       return;
     }
@@ -331,17 +372,23 @@ export async function startDevServer(options = {}) {
     logger.hmr(`Client connected to HMR WebSocket. Active clients: ${colors.bold(activeSockets.size)}`);
 
     socket.on('data', (buffer) => {
-      const frame = decodeWebSocketFrame(buffer);
-      if (frame) {
-        // Ping frame (0x9) -> respond with Pong (0xA)
-        if (frame.opcode === 0x9) {
-          socket.write(encodeWebSocketFrame(frame.payload, 0xa));
+      try {
+        const frame = decodeWebSocketFrame(buffer);
+        if (frame) {
+          // Ping frame (0x9) -> respond with Pong (0xA)
+          if (frame.opcode === 0x9) {
+            socket.write(encodeWebSocketFrame(frame.payload, 0xa));
+          }
+          // Close frame (0x8)
+          else if (frame.opcode === 0x8) {
+            activeSockets.delete(socket);
+            socket.end(encodeWebSocketFrame(Buffer.alloc(0), 0x8));
+          }
         }
-        // Close frame (0x8)
-        else if (frame.opcode === 0x8) {
-          activeSockets.delete(socket);
-          socket.end(encodeWebSocketFrame(Buffer.alloc(0), 0x8));
-        }
+      } catch (err) {
+        // Malformed frame or decoding error -> destroy socket securely
+        activeSockets.delete(socket);
+        socket.destroy();
       }
     });
 
@@ -351,6 +398,7 @@ export async function startDevServer(options = {}) {
 
     socket.on('error', () => {
       activeSockets.delete(socket);
+      socket.destroy();
     });
   });
 
@@ -368,6 +416,11 @@ export async function startDevServer(options = {}) {
     }
 
     debounceTimer = setTimeout(() => {
+      debounceTimer = null;
+      if (isBuilding) {
+        pendingBuild = true;
+        return;
+      }
       logger.hmr(`File change detected: ${colors.cyan(filename)}. Rebundling...`);
       const success = compile();
       if (success) {
@@ -381,14 +434,22 @@ export async function startDevServer(options = {}) {
 
   function startWatchers() {
     if (fs.existsSync(watchDir)) {
-      watchers.push(fs.watch(watchDir, { recursive: true }, handleWatchEvent));
+      const w1 = fs.watch(watchDir, { recursive: true }, handleWatchEvent);
+      w1.on('error', (err) => logger.warn(`Watcher error on ${watchDir}: ${err.message}`));
+      watchers.push(w1);
     }
     if (fs.existsSync(publicDir)) {
-      watchers.push(fs.watch(publicDir, { recursive: true }, handleWatchEvent));
+      const w2 = fs.watch(publicDir, { recursive: true }, handleWatchEvent);
+      w2.on('error', (err) => logger.warn(`Watcher error on ${publicDir}: ${err.message}`));
+      watchers.push(w2);
     }
   }
 
   function closeServer() {
+    if (debounceTimer) {
+      clearTimeout(debounceTimer);
+      debounceTimer = null;
+    }
     for (const w of watchers) {
       try { w.close(); } catch(e) {}
     }

@@ -3,6 +3,14 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { logger, colors } from './cli.js';
 
+export class BuildError extends Error {
+  constructor(message, file) {
+    super(message);
+    this.name = 'BuildError';
+    this.file = file;
+  }
+}
+
 /**
  * Resolves a module specifier relative to the importing file.
  * Checks for extensions (.js, .mjs, .cjs, .ts, .json) and directory indexes.
@@ -41,7 +49,7 @@ export function resolveModulePath(fromFile, specifier, rootDir = process.cwd()) 
     }
   }
 
-  throw new Error(`Cannot resolve module '${specifier}' requested by '${fromFile}'`);
+  throw new BuildError(`Cannot resolve module '${specifier}' requested by '${fromFile}'`, fromFile);
 }
 
 /**
@@ -224,7 +232,7 @@ export function buildDependencyGraph(entryPath, rootDir = process.cwd()) {
   const absoluteEntry = path.isAbsolute(entryPath) ? entryPath : path.resolve(rootDir, entryPath);
 
   if (!fs.existsSync(absoluteEntry)) {
-    throw new Error(`Entry file not found: ${absoluteEntry}`);
+    throw new BuildError(`Entry file not found: ${absoluteEntry}`, absoluteEntry);
   }
 
   let nextId = 0;
@@ -234,7 +242,12 @@ export function buildDependencyGraph(entryPath, rootDir = process.cwd()) {
   const recursionStack = new Set();
 
   function createModule(absoluteFilePath) {
-    const rawContent = fs.readFileSync(absoluteFilePath, 'utf8');
+    let rawContent;
+    try {
+      rawContent = fs.readFileSync(absoluteFilePath, 'utf8');
+    } catch (err) {
+      throw new BuildError(`Failed to read file: ${err.message}`, absoluteFilePath);
+    }
     const hash = crypto.createHash('sha256').update(rawContent).digest('hex');
     const { code, dependencies } = transformModuleCode(rawContent, absoluteFilePath);
 
@@ -277,7 +290,8 @@ export function buildDependencyGraph(entryPath, rootDir = process.cwd()) {
         moduleNode.mapping[depSpecifier] = childId;
       } catch (err) {
         logger.error(`Module resolution failed for '${depSpecifier}' in '${path.relative(rootDir, absoluteFilePath)}': ${err.message}`);
-        throw err;
+        if (err.name === 'BuildError') throw err;
+        throw new BuildError(`Cannot resolve module '${depSpecifier}' imported from '${path.relative(rootDir, absoluteFilePath)}'`, absoluteFilePath);
       }
     }
 
