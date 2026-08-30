@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import vm from 'node:vm';
-import { transformModuleCode, buildDependencyGraph } from '../src/parser.js';
+import { transformModuleCode, buildDependencyGraph, minifyCss } from '../src/parser.js';
 import { generateBundle } from '../src/bundler.js';
 
 function makeFixture(files) {
@@ -159,6 +159,12 @@ test('regression: bundled demo render path executes without undefined imports', 
     },
     document: {
       readyState: 'loading',
+      head: { appendChild: () => {} },
+      createElement(tag) {
+        const el = { tag, textContent: '', attrs: {} };
+        el.setAttribute = (k, v) => { el.attrs[k] = v; };
+        return el;
+      },
       getElementById(id) {
         assert.equal(id, 'app');
         return container;
@@ -173,4 +179,71 @@ test('regression: bundled demo render path executes without undefined imports', 
 
   assert.match(container.innerHTML, /ZeroPack Runtime Active/);
   assert.match(container.innerHTML, /Circle Area/);
+});
+
+// CSS Bundling Tests
+test('minifyCss strips block comments and collapses whitespace', () => {
+  const input = `
+    /* theme vars */
+    :root {
+      --accent: #38bdf8; /* sky blue */
+    }
+
+    body   {   background:   red;   }
+  `;
+  const out = minifyCss(input);
+  assert.ok(!out.includes('/*'), 'comments should be stripped');
+  assert.ok(!out.includes('\n'), 'newlines should be collapsed');
+  assert.ok(out.includes('--accent:#38bdf8'), 'property values should be preserved');
+  assert.ok(out.includes('background:red'), 'body rule should be preserved');
+});
+
+test('transformModuleCode wraps CSS in style-injection module', () => {
+  const fakePath = '/project/src/style.css';
+  const css = 'body { background: #000; }';
+  const { code, dependencies } = transformModuleCode(css, fakePath);
+
+  assert.deepEqual(dependencies, [], 'CSS modules have no JS dependencies');
+  assert.match(code, /document\.createElement\('style'\)/, 'should inject a style element');
+  assert.match(code, /document\.head\.appendChild/, 'should append to document.head');
+  assert.match(code, /module\.exports = __css/, 'should export the CSS string');
+  assert.match(code, /data-zeropack/, 'should stamp origin path attribute');
+});
+
+test('CSS import is bundled and style is injected at runtime', () => {
+  const rootDir = makeFixture({
+    'src/index.js': `
+      import './theme.css';
+      globalThis.__cssLoaded = true;
+    `,
+    'src/theme.css': `body { background: var(--bg); }`
+  });
+
+  const graph = buildDependencyGraph('src/index.js', rootDir);
+  assert.equal(graph.length, 2, 'graph should contain 2 modules (JS + CSS)');
+
+  const result = generateBundle(graph, { minify: false });
+  const injectedStyles = [];
+  const mockDoc = {
+    createElement: (tag) => {
+      const el = { tag, attrs: {}, textContent: '' };
+      el.setAttribute = (k, v) => { el.attrs[k] = v; };
+      injectedStyles.push(el);
+      return el;
+    },
+    head: { appendChild: () => {} }
+  };
+
+  const sandbox = {
+    console,
+    document: mockDoc,
+    globalThis: {}
+  };
+  sandbox.globalThis = sandbox;
+  vm.runInNewContext(result.code, sandbox);
+
+  assert.ok(sandbox.__cssLoaded, 'JS module should execute');
+  assert.equal(injectedStyles.length, 1, 'one <style> element should be created');
+  assert.equal(injectedStyles[0].tag, 'style');
+  assert.match(injectedStyles[0].textContent, /background/);
 });

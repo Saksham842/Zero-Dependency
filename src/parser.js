@@ -48,7 +48,7 @@ export function resolveModulePath(fromFile, specifier, rootDir = process.cwd()) 
   }
 
   // 2. Try file extensions
-  const extensions = ['.js', '.mjs', '.cjs', '.ts', '.jsx', '.tsx', '.json'];
+  const extensions = ['.js', '.mjs', '.cjs', '.ts', '.jsx', '.tsx', '.json', '.css'];
   for (const ext of extensions) {
     const withExt = candidate + ext;
     if (fs.existsSync(withExt) && fs.statSync(withExt).isFile()) {
@@ -58,7 +58,7 @@ export function resolveModulePath(fromFile, specifier, rootDir = process.cwd()) 
 
   // 3. Try directory index file
   if (fs.existsSync(candidate) && fs.statSync(candidate).isDirectory()) {
-    for (const ext of extensions) {
+    for (const ext of ['.js', '.mjs', '.cjs', '.ts', '.jsx', '.tsx', '.json', '.css']) {
       const indexFile = path.join(candidate, `index${ext}`);
       if (fs.existsSync(indexFile) && fs.statSync(indexFile).isFile()) {
         checkUnsupportedExtension(indexFile);
@@ -97,6 +97,20 @@ function checkUnsupportedExtension(filePath) {
 }
 
 /**
+ * Minifies a CSS string: strips comments and collapses whitespace.
+ * Pure stdlib — no external packages.
+ */
+export function minifyCss(css) {
+  // Remove /* ... */ block comments
+  let out = css.replace(/\/\*[\s\S]*?\*\//g, '');
+  // Collapse whitespace sequences (newlines, tabs, multiple spaces) to single space
+  out = out.replace(/\s+/g, ' ');
+  // Remove spaces around structural tokens: { } : ; ,
+  out = out.replace(/\s*([{}:;,>~+])\s*/g, '$1');
+  return out.trim();
+}
+
+/**
  * Extracts import/require specifiers and transforms ESM syntax into runtime CJS format.
  */
 export function transformModuleCode(rawCode, filePath) {
@@ -109,6 +123,24 @@ export function transformModuleCode(rawCode, filePath) {
       code: `module.exports = ${rawCode.trim() || '{}'};`,
       dependencies: []
     };
+  }
+
+  // CSS module: minify and generate a style-injection JS module
+  if (filePath.endsWith('.css')) {
+    const minified = minifyCss(rawCode);
+    // Escape backticks and backslashes so the CSS is safe inside a template literal
+    const escaped = minified.replace(/\\/g, '\\\\').replace(/`/g, '\\`');
+    const code = [
+      `const __css = \`${escaped}\`;`,
+      `if (typeof document !== 'undefined') {`,
+      `  const __style = document.createElement('style');`,
+      `  __style.setAttribute('data-zeropack', ${JSON.stringify(filePath)});`,
+      `  __style.textContent = __css;`,
+      `  document.head.appendChild(__style);`,
+      `}`,
+      `module.exports = __css;`
+    ].join('\n');
+    return { code, dependencies: [] };
   }
 
   let i = 0;

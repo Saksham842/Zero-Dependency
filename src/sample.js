@@ -42,7 +42,94 @@ export default {
 `;
   fs.writeFileSync(path.join(srcDir, 'utils.js'), utilsCode, 'utf8');
 
-  // 3. UI Component Module
+  // 3. Stylesheet Module
+  const cssCode = `/* ZeroPack sample app styles */
+:root {
+  --bg: #0b0f19;
+  --card: #111827;
+  --border: #1f2937;
+  --accent: #38bdf8;
+  --accent2: #818cf8;
+  --text: #f1f5f9;
+  --muted: #94a3b8;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.zp-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 2rem;
+  max-width: 580px;
+  width: 100%;
+  box-shadow: 0 20px 40px rgba(0,0,0,0.4);
+  animation: fadeUp 0.4s ease;
+}
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.zp-card__header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 1.25rem;
+}
+
+.zp-card__icon { font-size: 2rem; }
+
+.zp-card__title {
+  font-size: 1.75rem;
+  font-weight: 700;
+  background: linear-gradient(to right, var(--accent), var(--accent2));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.zp-card__subtitle { color: var(--muted); line-height: 1.6; margin-bottom: 1.25rem; }
+
+.zp-card__metric {
+  background: #090d16;
+  border-left: 4px solid var(--accent);
+  border-radius: 8px;
+  padding: 0.875rem 1rem;
+  margin-bottom: 1.25rem;
+  font-size: 0.95rem;
+  color: var(--accent);
+}
+
+.zp-card__badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.zp-badge {
+  background: rgba(56,189,248,0.08);
+  border: 1px solid rgba(56,189,248,0.2);
+  color: var(--accent);
+  border-radius: 9999px;
+  padding: 4px 12px;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+`;
+  fs.writeFileSync(path.join(srcDir, 'styles.css'), cssCode, 'utf8');
+
+  // 4. UI Component Module
   const componentsCode = `import { formatGreeting, calculateCircleArea } from './utils.js';
 
 export function renderApp(containerId = 'app') {
@@ -53,21 +140,20 @@ export function renderApp(containerId = 'app') {
   const greeting = formatGreeting('Hackathon Innovator');
 
   container.innerHTML = \`
-    <div style="background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); color: #f8fafc; padding: 2rem; border-radius: 12px; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.5); font-family: system-ui, sans-serif; max-width: 600px; margin: 2rem auto; border: 1px solid #334155;">
-      <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 1rem;">
-        <span style="font-size: 2rem;">⚡</span>
-        <h1 style="margin: 0; font-size: 1.8rem; background: linear-gradient(to right, #38bdf8, #818cf8); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">ZeroPack Runtime Active</h1>
+    <div class="zp-card">
+      <div class="zp-card__header">
+        <span class="zp-card__icon">⚡</span>
+        <h1 class="zp-card__title">ZeroPack Runtime Active</h1>
       </div>
-      <p style="color: #94a3b8; line-height: 1.5;">\${greeting}</p>
-      <div style="background: #090d16; padding: 1rem; border-radius: 8px; border-left: 4px solid #38bdf8; margin: 1.5rem 0;">
-        <p style="margin: 0; font-size: 0.95rem; color: #38bdf8;"><strong>Live Calculation:</strong> Circle Area (r=5) = \${area}</p>
+      <p class="zp-card__subtitle">\${greeting}</p>
+      <div class="zp-card__metric">
+        <strong>Live Calculation:</strong> Circle Area (r=5) = \${area}
       </div>
-      <div style="display: flex; gap: 10px; font-size: 0.85rem; color: #64748b;">
-        <span>🛡️ 0 Dependencies</span>
-        <span>•</span>
-        <span>🚀 RFC 6455 HMR</span>
-        <span>•</span>
-        <span>📦 Deterministic IIFE</span>
+      <div class="zp-card__badges">
+        <span class="zp-badge">🛡️ 0 Dependencies</span>
+        <span class="zp-badge">🚀 RFC 6455 HMR</span>
+        <span class="zp-badge">📦 Deterministic IIFE</span>
+        <span class="zp-badge">🎨 CSS Bundling</span>
       </div>
     </div>
   \`;
@@ -75,8 +161,9 @@ export function renderApp(containerId = 'app') {
 `;
   fs.writeFileSync(path.join(srcDir, 'components.js'), componentsCode, 'utf8');
 
-  // 4. Main Entry Point
-  const indexCode = `import { renderApp } from './components.js';
+  // 5. Main Entry Point
+  const indexCode = `import './styles.css';
+import { renderApp } from './components.js';
 
 console.log('[ZeroPack] Initializing application bundle...');
 
