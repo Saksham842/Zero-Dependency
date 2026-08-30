@@ -4,6 +4,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { logger, colors } from './cli.js';
 import { buildDependencyGraph } from './parser.js';
+import { build as graphBuild, rebuild as graphRebuild } from './graph.js';
 import { bundleToFile } from './bundler.js';
 import { DASHBOARD_HTML } from './dashboard.js';
 
@@ -201,6 +202,15 @@ export function renderTUI(stats, { url = _tuiState.url, wsUrl = _tuiState.wsUrl,
   if (wsUrl) _tuiState.wsUrl = wsUrl;
   if (dashUrl) _tuiState.dashUrl = dashUrl;
 
+  if (!process.stdout.isTTY) {
+    const isFailed = stats && stats.status === 'failed';
+    const statusLabel = isFailed ? 'FAILED' : 'LIVE';
+    const sizeStr = stats ? formatBytes(stats.minifiedSize || 0) : '--';
+    const timeStr = stats ? (stats.buildTimeMs || 0) + 'ms' : '--';
+    console.log(`[ZeroPack] ${statusLabel} | Bundle: ${sizeStr} | Time: ${timeStr}`);
+    return;
+  }
+
   const isFailed = stats && stats.status === 'failed';
   const statusBadge = isFailed
     ? `\x1b[41m\x1b[37m FAILED \x1b[0m`
@@ -269,7 +279,9 @@ export async function startDevServer(options = {}) {
 
   let isBuilding = false;
   let pendingBuild = false;
+  let pendingPathsForNextBuild = new Set();
   let httpRequestLog = [];
+  let isFirstBuild = true;
 
   function logActivity(msg) {
     _tuiPush(msg);
@@ -277,11 +289,18 @@ export async function startDevServer(options = {}) {
   }
 
   // Initial / Rebuild compilation
-  function compile() {
+  function compile(changedPaths = null) {
     isBuilding = true;
     broadcast({ type: 'status', status: 'building' });
     try {
-      const graph = buildDependencyGraph(entry, rootDir);
+      let graph;
+      if (isFirstBuild || changedPaths === null) {
+        graph = graphBuild(entry, rootDir);
+        isFirstBuild = false;
+      } else {
+        graph = graphRebuild(entry, changedPaths);
+      }
+      
       const outputPath = path.isAbsolute(out) ? out : path.join(rootDir, out);
       const result = bundleToFile(graph, outputPath, { minify, hmr: true });
       result.stats.status = 'success';
@@ -317,8 +336,10 @@ export async function startDevServer(options = {}) {
       isBuilding = false;
       if (pendingBuild) {
         pendingBuild = false;
+        const paths = Array.from(pendingPathsForNextBuild);
+        pendingPathsForNextBuild.clear();
         process.nextTick(() => {
-          const success = compile();
+          const success = compile(paths.length > 0 ? paths : null);
           if (success) {
             broadcast({ type: 'reload', file: 'pending-rebuild', timestamp: Date.now() });
             logger.hmr(`Dispatched ${colors.green('RELOAD')} frame to ${colors.bold(activeSockets.size)} client(s)`);
@@ -509,12 +530,15 @@ export async function startDevServer(options = {}) {
 
   // Native Watcher with 100ms Debounce using `node:fs.watch`
   let debounceTimer = null;
+  let pendingPaths = new Set();
   const watchDir = path.resolve(rootDir, 'src');
   const publicDir = path.resolve(rootDir, 'public');
 
-  function handleWatchEvent(eventType, filename) {
+  function handleWatchEvent(eventType, filename, baseDir) {
     if (!filename) return;
     if (filename.endsWith('bundle.js') || filename.includes('node_modules') || filename.startsWith('.')) return;
+
+    pendingPaths.add(path.resolve(baseDir, filename));
 
     if (debounceTimer) {
       clearTimeout(debounceTimer);
@@ -524,10 +548,14 @@ export async function startDevServer(options = {}) {
       debounceTimer = null;
       if (isBuilding) {
         pendingBuild = true;
+        for (const p of pendingPaths) pendingPathsForNextBuild.add(p);
+        pendingPaths.clear();
         return;
       }
       logger.hmr(`File change detected: ${colors.cyan(filename)}. Rebundling...`);
-      const success = compile();
+      const paths = Array.from(pendingPaths);
+      pendingPaths.clear();
+      const success = compile(paths);
       if (success) {
         broadcast({ type: 'reload', file: filename, timestamp: Date.now() });
         logger.hmr(`Dispatched ${colors.green('RELOAD')} frame to ${colors.bold(activeSockets.size)} client(s)`);
@@ -539,12 +567,12 @@ export async function startDevServer(options = {}) {
 
   function startWatchers() {
     if (fs.existsSync(watchDir)) {
-      const w1 = fs.watch(watchDir, { recursive: true }, handleWatchEvent);
+      const w1 = fs.watch(watchDir, { recursive: true }, (eventType, filename) => handleWatchEvent(eventType, filename, watchDir));
       w1.on('error', (err) => logger.warn(`Watcher error on ${watchDir}: ${err.message}`));
       watchers.push(w1);
     }
     if (fs.existsSync(publicDir)) {
-      const w2 = fs.watch(publicDir, { recursive: true }, handleWatchEvent);
+      const w2 = fs.watch(publicDir, { recursive: true }, (eventType, filename) => handleWatchEvent(eventType, filename, publicDir));
       w2.on('error', (err) => logger.warn(`Watcher error on ${publicDir}: ${err.message}`));
       watchers.push(w2);
     }
@@ -575,14 +603,14 @@ export async function startDevServer(options = {}) {
       const wsUrl   = `ws://${host}:${actualPort}/__zeropack_hmr`;
 
       // First render with fresh URLs
-      tui.hide();
+      if (process.stdout.isTTY) tui.hide();
       console.log(''); // blank line before TUI
       renderTUI(currentStats, { url, dashUrl, wsUrl });
       _tuiPush(`Server started on port ${actualPort}`);
       renderTUI(currentStats);
 
       // Restore cursor on exit
-      const onExit = () => { tui.show(); process.exit(0); };
+      const onExit = () => { if (process.stdout.isTTY) tui.show(); process.exit(0); };
       process.once('SIGINT', onExit);
       process.once('SIGTERM', onExit);
 
@@ -590,7 +618,7 @@ export async function startDevServer(options = {}) {
     });
 
     server.on('error', (err) => {
-      tui.show();
+      if (process.stdout.isTTY) tui.show();
       if (err.code === 'EADDRINUSE') {
         logger.error(`Port ${port} is already in use. Please specify another port with --port`);
       } else {
