@@ -47,11 +47,11 @@ export default {
 
 :root {
   /* Contemporary Design System Tokens */
-  --color-primary: #C800DF;
-  --color-secondary: #E60076;
-  --color-success: #16A34A;
-  --color-warning: #D97706;
-  --color-danger: #DC2626;
+  --color-primary: #38bdf8;
+  --color-secondary: #818cf8;
+  --color-success: #34d399;
+  --color-warning: #fbbf24;
+  --color-danger: #f87171;
   
   --color-surface-base: #09090b;
   --color-surface-card: #18181b;
@@ -144,7 +144,7 @@ h1, h2 {
 
 .bento-card--featured {
   grid-column: 1 / -1;
-  background: linear-gradient(145deg, var(--color-surface-card), #1e1b2e);
+  background: linear-gradient(145deg, var(--color-surface-card), #1e293b);
 }
 
 .card-icon {
@@ -165,7 +165,7 @@ h1, h2 {
 }
 
 .metric-box {
-  background-color: rgba(200, 0, 223, 0.1);
+  background-color: rgba(56, 189, 248, 0.1);
   border-left: 4px solid var(--color-primary);
   border-radius: var(--radius-sm);
   padding: var(--space-4);

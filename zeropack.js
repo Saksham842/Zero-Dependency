@@ -1520,11 +1520,11 @@ export const DASHBOARD_HTML = `<!DOCTYPE html>
 
     :root {
       /* Contemporary Design System Tokens */
-      --color-primary: #C800DF;
-      --color-secondary: #E60076;
-      --color-success: #16A34A;
-      --color-warning: #D97706;
-      --color-danger: #DC2626;
+      --color-primary: #38bdf8;
+      --color-secondary: #818cf8;
+      --color-success: #34d399;
+      --color-warning: #fbbf24;
+      --color-danger: #f87171;
       
       --color-surface-base: #09090b;
       --color-surface-card: #18181b;
@@ -1594,7 +1594,7 @@ export const DASHBOARD_HTML = `<!DOCTYPE html>
       align-items: center;
       justify-content: center;
       border-radius: var(--radius-md);
-      box-shadow: 0 0 20px rgba(200, 0, 223, 0.2);
+      box-shadow: 0 0 20px rgba(56, 189, 248, 0.2);
       color: white;
     }
 
@@ -1676,8 +1676,8 @@ export const DASHBOARD_HTML = `<!DOCTYPE html>
     }
 
     @keyframes pulse-flash {
-      0% { transform: scale(1); background: rgba(200, 0, 223, 0.3); color: #fff; }
-      50% { transform: scale(1.1); background: rgba(200, 0, 223, 0.8); color: #fff; }
+      0% { transform: scale(1); background: rgba(56, 189, 248, 0.3); color: #fff; }
+      50% { transform: scale(1.1); background: rgba(56, 189, 248, 0.8); color: #fff; }
       100% { transform: scale(1); }
     }
 
@@ -1874,8 +1874,8 @@ export const DASHBOARD_HTML = `<!DOCTYPE html>
     }
 
     .live-tag {
-      background: rgba(200, 0, 223, 0.1);
-      border: 1px solid rgba(200, 0, 223, 0.2);
+      background: rgba(56, 189, 248, 0.1);
+      border: 1px solid rgba(56, 189, 248, 0.2);
       color: var(--color-primary);
       padding: 4px 12px;
       border-radius: 999px;
