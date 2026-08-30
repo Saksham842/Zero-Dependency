@@ -81,12 +81,13 @@ Every industry-standard npm library has been replaced with a native Node.js core
 - 🎨 **CSS Import Bundling:** `import './style.css'` works — CSS is minified and injected as a `<style>` tag at runtime.
 - 🔄 **Native RFC 6455 WebSocket Live Reload:** Real-time full-page reloading without external WebSocket engines.
 - 🗜️ **Built-in Minification:** State-machine lexer that strips comments and whitespace without corrupting strings or regex literals.
-- 🖥️ **TUI Dashboard:** ANSI VT100 terminal UI that renders a live box with build stats and activity log — updates in-place on every rebuild.
+- 🖥️ **TUI Dashboard:** ANSI VT100 terminal UI that renders a live box with build stats and activity log. Automatically falls back to plain text if the terminal is non-TTY or piped.
 - 🔒 **100% Deterministic Reproducible Builds:** Modules sorted lexicographically to guarantee bit-for-bit identical SHA-256 output across runs.
 - 🛡️ **Robust Error Handling:** Comprehensive `BuildError` diagnostics pointing directly to file, line, and column.
-- 🔄 **Stateful Watch Rebuilds:** Incremental graph engine caches SHA-256 hashes — only changed modules are reprocessed.
+- 🔄 **Stateful Watch Rebuilds:** Incremental graph engine caches SHA-256 hashes — only changed modules are reprocessed. Used automatically by the dev server and `--watch` mode.
 - 📦 **Single-File Distribution:** The entire bundler compiles into one standalone executable `zeropack.js`.
 - 👁️ **`--watch` Mode:** Rebuild-on-change without starting the HTTP server — useful for libraries and CLI tools.
+- 🌐 **Network Access:** Binding the dev server to `--host 0.0.0.0` exposes it to the network. The built-in static server enforces path traversal protections to prevent unauthorized file access outside of `public/` and `src/`.
 
 ---
 
@@ -98,10 +99,12 @@ Every industry-standard npm library has been replaced with a native Node.js core
 | Named exports | ✅ Supported | `export const`, `export function`, `export class` |
 | Default exports | ✅ Supported | `export default function`, multiline objects |
 | Re-exports | ✅ Supported | `export { x } from ...`, `export * from ...` |
+| Multi-binding exports | ✅ Supported | `export let a = 1, b = 2;` |
 | JSON modules | ✅ Supported | Parses JSON, ignores `with { type: 'json' }` |
 | Dynamic imports | ✅ Supported | `import('./file.js')` mapped to Promise |
 | **CSS imports** | ✅ **Supported** | **`import './style.css'` — minified & injected via `<style>` tag** |
 | CommonJS require | ⚠️ Limited | `require()` works natively if strictly formatted |
+| Destructured exports | ❌ Unsupported | `export const {x} = obj` will throw a BuildError |
 | npm Package Resolution | ❌ Unsupported | Only resolves local relative paths (`./`, `../`) |
 | TypeScript syntax | ❌ Unsupported | Resolves `.ts` extensions, but does not compile |
 | JSX syntax | ❌ Unsupported | Resolves `.jsx` extensions, but does not compile |

@@ -42,8 +42,8 @@ test('transforms named class exports into exported class bindings', () => {
 test('transforms named variable exports', () => {
   const { code } = transformModuleCode('export const answer = 42;\nexport let name = "ZeroPack";', 'vars.js');
 
-  assert.match(code, /const answer = module\.exports\.answer = 42;/);
-  assert.match(code, /let name = module\.exports\.name = "ZeroPack";/);
+  assert.match(code, /const answer = module\.exports\.answer\s*=\s*42;/);
+  assert.match(code, /let name = module\.exports\.name\s*=\s*"ZeroPack";/);
 });
 
 test('transforms supported default export forms', () => {
