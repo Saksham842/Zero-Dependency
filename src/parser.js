@@ -57,10 +57,9 @@ export function resolveModulePath(fromFile, specifier, rootDir = process.cwd()) 
  */
 export function transformModuleCode(rawCode, filePath) {
   const dependencies = new Set();
-  let code = rawCode;
+  let output = '';
   const importTempVars = new Map();
 
-  // If JSON file, wrap as module export
   if (filePath.endsWith('.json')) {
     return {
       code: `module.exports = ${rawCode.trim() || '{}'};`,
@@ -68,158 +67,560 @@ export function transformModuleCode(rawCode, filePath) {
     };
   }
 
-  // 1. Scan and collect require('...') calls
-  const requireRegex = /(?:^|[^.\w])require\s*\(\s*(['"`])([^'"`]+)\1\s*\)/g;
-  let reqMatch;
-  while ((reqMatch = requireRegex.exec(code)) !== null) {
-    dependencies.add(reqMatch[2]);
+  let i = 0;
+  const len = rawCode.length;
+  let inSingleQuote = false;
+  let inDoubleQuote = false;
+  let inTemplateLiteral = false;
+  let inRegex = false;
+  let isEscaped = false;
+
+  function skipWhitespaceAndComments(index) {
+    while (index < len) {
+      const char = rawCode[index];
+      const nextChar = rawCode[index + 1];
+      if (/\s/.test(char)) { index++; continue; }
+      if (char === '/' && nextChar === '/') {
+        index += 2;
+        while (index < len && rawCode[index] !== '\n') index++;
+        continue;
+      }
+      if (char === '/' && nextChar === '*') {
+        index += 2;
+        while (index < len && !(rawCode[index] === '*' && rawCode[index + 1] === '/')) index++;
+        index += 2;
+        continue;
+      }
+      break;
+    }
+    return index;
   }
 
-  // 2. Transform `import * as name from 'specifier'`
-  code = code.replace(
-    /(?:^|\n)\s*import\s+\*\s+as\s+([a-zA-Z_$][0-9a-zA-Z_$]*)\s+from\s+(['"])(.*?)\2;?/g,
-    (_, varName, quote, specifier) => {
-      dependencies.add(specifier);
-      return `\nconst ${varName} = require('${specifier}');`;
+  function readWord(index) {
+    let word = '';
+    while (index < len && /[a-zA-Z_$0-9]/.test(rawCode[index])) {
+      word += rawCode[index++];
     }
-  );
+    return { word, index };
+  }
 
-  // 3. Transform `import DefaultName, { a, b as c } from 'specifier'` or `import DefaultName from 'specifier'`
-  // or `import { a, b as c } from 'specifier'`
-  code = code.replace(
-    /(?:^|\n)\s*import\s+([\s\S]*?)\s+from\s+(['"])(.*?)\2;?/g,
-    (_, importClause, quote, specifier) => {
-      dependencies.add(specifier);
-      const clause = importClause.trim();
-      let tempVar = importTempVars.get(specifier);
-      let requireLine = '';
-      if (!tempVar) {
-        const specifierHash = crypto.createHash('sha256').update(specifier).digest('hex').slice(0, 8);
-        tempVar = `__mod_${specifierHash}`;
-        importTempVars.set(specifier, tempVar);
-        requireLine = `const ${tempVar} = require('${specifier}');`;
-      }
-
-      let lines = requireLine ? [requireLine] : [];
-
-      if (clause.startsWith('{')) {
-        // Named imports: `import { a, b as c } from '...'`
-        const inside = clause.slice(1, -1).trim();
-        const renamed = inside.split(',').map((part) => {
-          const p = part.trim();
-          if (!p) return '';
-          if (p.includes(' as ')) {
-            const [orig, alias] = p.split(' as ').map((s) => s.trim());
-            return `${orig}: ${alias}`;
-          }
-          return p;
-        }).filter(Boolean).join(', ');
-        lines.push(`const { ${renamed} } = ${tempVar};`);
-      } else if (clause.includes('{')) {
-        // Default and named: `import DefaultName, { a, b as c } from '...'`
-        const [defaultPart, namedPart] = clause.split(/,(.+)/);
-        const defName = defaultPart.trim();
-        const inside = namedPart.trim().slice(1, -1).trim();
-        lines.push(`const ${defName} = ${tempVar}.default !== undefined ? ${tempVar}.default : ${tempVar};`);
-        const renamed = inside.split(',').map((part) => {
-          const p = part.trim();
-          if (!p) return '';
-          if (p.includes(' as ')) {
-            const [orig, alias] = p.split(' as ').map((s) => s.trim());
-            return `${orig}: ${alias}`;
-          }
-          return p;
-        }).filter(Boolean).join(', ');
-        lines.push(`const { ${renamed} } = ${tempVar};`);
-      } else {
-        // Pure default import: `import DefaultName from '...'`
-        lines.push(`const ${clause} = ${tempVar}.default !== undefined ? ${tempVar}.default : ${tempVar};`);
-      }
-
-      return '\n' + lines.join('\n');
+  function readString(index) {
+    const quote = rawCode[index++];
+    let str = '';
+    let esc = false;
+    while (index < len) {
+      const c = rawCode[index++];
+      if (esc) { str += c; esc = false; continue; }
+      if (c === '\\') { esc = true; continue; }
+      if (c === quote) break;
+      str += c;
     }
-  );
+    return { str, index, quote };
+  }
 
-  // 4. Transform bare side-effect `import 'specifier'`
-  code = code.replace(
-    /(?:^|\n)\s*import\s+(['"])(.*?)\1;?/g,
-    (_, quote, specifier) => {
-      dependencies.add(specifier);
-      return `\nrequire('${specifier}');`;
-    }
-  );
-
-  // 5. Transform `export default function foo() {}` or `export default class Bar {}`
-  code = code.replace(
-    /(?:^|\n)\s*export\s+default\s+function\s+([a-zA-Z_$][0-9a-zA-Z_$]*)\s*\(([\s\S]*?)\)\s*\{/g,
-    (_, funcName, params) => {
-      return `\nmodule.exports.default = ${funcName};\nfunction ${funcName}(${params}) {`;
-    }
-  );
-
-  code = code.replace(
-    /(?:^|\n)\s*export\s+default\s+class\s+([a-zA-Z_$][0-9a-zA-Z_$]*)([\s\S]*?)\{/g,
-    (_, className, rest) => {
-      return `\nconst ${className} = module.exports.default = class ${className}${rest}{`;
-    }
-  );
-
-  // 6. Transform generic `export default ...` (handles multiline objects, expressions, anonymous functions)
-  code = code.replace(
-    /(?:^|\n)\s*export\s+default\s+([\s\S]+?)(?:;|\n\s*(?:export|import|\/\*|\/\/|$))/g,
-    (match, expr) => {
-      const trimmedExpr = expr.trim();
-      if (!trimmedExpr) return match;
-      if (trimmedExpr.startsWith('function') && !trimmedExpr.startsWith('function(')) {
-        return match; // already handled
-      }
-      return `\nconst __defaultExport = (${trimmedExpr});\nmodule.exports.default = __defaultExport;\nif (typeof __defaultExport === 'object' && __defaultExport !== null) { Object.assign(module.exports, __defaultExport); }\n`;
-    }
-  );
-
-  // 7. Transform `export const/let/var name = ...`
-  code = code.replace(
-    /(?:^|\n)\s*export\s+(const|let|var)\s+([a-zA-Z_$][0-9a-zA-Z_$]*)\s*=/g,
-    (_, decl, varName) => {
-      return `\n${decl} ${varName} = module.exports.${varName} =`;
-    }
-  );
-
-  // 8. Transform `export function name(...) {}`
-  code = code.replace(
-    /(?:^|\n)\s*export\s+function\s+([a-zA-Z_$][0-9a-zA-Z_$]*)\s*\(([\s\S]*?)\)\s*\{/g,
-    (_, funcName, params) => {
-      return `\nmodule.exports.${funcName} = ${funcName};\nfunction ${funcName}(${params}) {`;
-    }
-  );
-
-  // 9. Transform `export class name {}`
-  code = code.replace(
-    /(?:^|\n)\s*export\s+class\s+([a-zA-Z_$][0-9a-zA-Z_$]*)([\s\S]*?)\{/g,
-    (_, className, rest) => {
-      return `\nconst ${className} = module.exports.${className} = class ${className}${rest}{`;
-    }
-  );
-
-  // 10. Transform `export { a, b as c }`
-  code = code.replace(
-    /(?:^|\n)\s*export\s+\{([\s\S]*?)\};?/g,
-    (_, inside) => {
-      const exportsList = inside.split(',').map((part) => {
-        const p = part.trim();
-        if (!p) return '';
-        if (p.includes(' as ')) {
-          const [orig, alias] = p.split(' as ').map((s) => s.trim());
-          return `module.exports.${alias} = ${orig};`;
+  function parseImport(startI) {
+    let idx = startI + 6;
+    idx = skipWhitespaceAndComments(idx);
+    
+    if (rawCode[idx] === '(') {
+      idx++;
+      idx = skipWhitespaceAndComments(idx);
+      if (rawCode[idx] === "'" || rawCode[idx] === '"' || rawCode[idx] === '`') {
+        const { str: specifier, index: afterString } = readString(idx);
+        idx = skipWhitespaceAndComments(afterString);
+        if (rawCode[idx] === ')') {
+          idx++;
+          dependencies.add(specifier);
+          return {
+            replacement: `Promise.resolve(require('${specifier}'))`,
+            newIndex: idx
+          };
         }
-        return `module.exports.${p} = ${p};`;
-      }).filter(Boolean).join('\n');
-      return '\n' + exportsList;
+      }
+      throw new BuildError(`Unsupported dynamic import expression`, filePath);
     }
-  );
+
+    let clause = '';
+    let specifier = '';
+    
+    if (rawCode[idx] === "'" || rawCode[idx] === '"') {
+      const { str, index: afterStr } = readString(idx);
+      specifier = str;
+      idx = skipWhitespaceAndComments(afterStr);
+      
+      const { word } = readWord(idx);
+      if (word === 'with' || word === 'assert') {
+         idx += word.length;
+         idx = skipWhitespaceAndComments(idx);
+         if (rawCode[idx] === '{') {
+            while (idx < len && rawCode[idx] !== '}') idx++;
+            if (rawCode[idx] === '}') idx++;
+         }
+      }
+      if (rawCode[idx] === ';') idx++;
+      
+      dependencies.add(specifier);
+      return {
+        replacement: `require('${specifier}')` + (rawCode[idx-1] === ';' ? ';' : ''),
+        newIndex: idx
+      };
+    }
+
+    let tokens = [];
+    while (idx < len) {
+      idx = skipWhitespaceAndComments(idx);
+      const { word } = readWord(idx);
+      if (word === 'from') {
+        idx += 4;
+        break;
+      }
+      if (word) {
+        tokens.push({ type: 'word', value: word });
+        idx += word.length;
+      } else {
+        const c = rawCode[idx];
+        tokens.push({ type: 'punct', value: c });
+        idx++;
+      }
+    }
+
+    idx = skipWhitespaceAndComments(idx);
+    if (rawCode[idx] === "'" || rawCode[idx] === '"') {
+      const { str, index: afterStr } = readString(idx);
+      specifier = str;
+      idx = skipWhitespaceAndComments(afterStr);
+      const { word } = readWord(idx);
+      if (word === 'with' || word === 'assert') {
+         idx += word.length;
+         idx = skipWhitespaceAndComments(idx);
+         if (rawCode[idx] === '{') {
+            while (idx < len && rawCode[idx] !== '}') idx++;
+            if (rawCode[idx] === '}') idx++;
+         }
+      }
+      if (rawCode[idx] === ';') idx++;
+    } else {
+      throw new BuildError(`Expected string literal after 'from'`, filePath);
+    }
+
+    dependencies.add(specifier);
+
+    let defaultName = null;
+    let namespaceName = null;
+    let namedImports = [];
+
+    let t = 0;
+    if (tokens[t] && tokens[t].type === 'word' && tokens[t].value !== 'as') {
+      defaultName = tokens[t].value;
+      t++;
+      if (tokens[t] && tokens[t].value === ',') t++;
+    }
+    
+    if (tokens[t] && tokens[t].value === '*') {
+      t++;
+      if (tokens[t] && tokens[t].value === 'as') {
+        t++;
+        namespaceName = tokens[t].value;
+        t++;
+      }
+    } else if (tokens[t] && tokens[t].value === '{') {
+      t++;
+      while (t < tokens.length && tokens[t].value !== '}') {
+        if (tokens[t].value === ',') { t++; continue; }
+        const orig = tokens[t].value;
+        let alias = orig;
+        t++;
+        if (tokens[t] && tokens[t].value === 'as') {
+          t++;
+          alias = tokens[t].value;
+          t++;
+        }
+        namedImports.push({ orig, alias });
+      }
+    }
+
+    let tempVar = importTempVars.get(specifier);
+    let isNew = false;
+    if (!tempVar) {
+      const specifierHash = crypto.createHash('sha256').update(specifier).digest('hex').slice(0, 8);
+      tempVar = `__mod_${specifierHash}`;
+      importTempVars.set(specifier, tempVar);
+      isNew = true;
+    }
+    
+    let lines = [];
+    if (isNew) {
+      lines.push(`const ${tempVar} = require('${specifier}');`);
+    }
+    
+    if (namespaceName) {
+      lines.push(`const ${namespaceName} = ${tempVar};`);
+    }
+    if (defaultName) {
+      lines.push(`const ${defaultName} = ${tempVar}.default !== undefined ? ${tempVar}.default : ${tempVar};`);
+    }
+    if (namedImports.length > 0) {
+      const renamed = namedImports.map(n => n.orig === n.alias ? n.orig : `${n.orig}: ${n.alias}`).join(', ');
+      lines.push(`const { ${renamed} } = ${tempVar};`);
+    }
+    
+    return {
+      replacement: lines.join('\n') + (rawCode[idx-1] === ';' ? '' : ''),
+      newIndex: idx
+    };
+  }
+
+  function parseExport(startI) {
+    let idx = startI + 6;
+    idx = skipWhitespaceAndComments(idx);
+    
+    let { word } = readWord(idx);
+    
+    if (word === 'default') {
+      idx += 7;
+      idx = skipWhitespaceAndComments(idx);
+      
+      let { word: nextWord } = readWord(idx);
+      if (nextWord === 'function' || nextWord === 'class') {
+        let peekIdx = skipWhitespaceAndComments(idx + nextWord.length);
+        let { word: name } = readWord(peekIdx);
+        if (name) {
+          if (nextWord === 'function') {
+            return {
+              replacement: `module.exports.default = ${name};\nfunction ${name}`,
+              newIndex: peekIdx + name.length
+            };
+          } else {
+            return {
+              replacement: `const ${name} = module.exports.default = class ${name}`,
+              newIndex: peekIdx + name.length
+            };
+          }
+        }
+        return {
+          replacement: `module.exports.default = `,
+          newIndex: idx
+        };
+      }
+      
+      let exprEnd = idx;
+      let braceCount = 0;
+      let parenCount = 0;
+      let inSq = false;
+      let inDq = false;
+      let inTl = false;
+      let isEsc = false;
+
+      while (exprEnd < len) {
+        const c = rawCode[exprEnd];
+        const nextC = rawCode[exprEnd + 1];
+        
+        if (isEsc) { isEsc = false; exprEnd++; continue; }
+        if (c === '\\') { isEsc = true; exprEnd++; continue; }
+        
+        if (c === "'" && !inDq && !inTl) { inSq = !inSq; exprEnd++; continue; }
+        if (c === '"' && !inSq && !inTl) { inDq = !inDq; exprEnd++; continue; }
+        if (c === '`' && !inSq && !inDq) { inTl = !inTl; exprEnd++; continue; }
+        if (inSq || inDq || inTl) { exprEnd++; continue; }
+        
+        if (c === '/' && nextC === '/') {
+           exprEnd += 2;
+           while (exprEnd < len && rawCode[exprEnd] !== '\n') exprEnd++;
+           continue;
+        }
+        if (c === '/' && nextC === '*') {
+           exprEnd += 2;
+           while (exprEnd < len && !(rawCode[exprEnd] === '*' && rawCode[exprEnd+1] === '/')) exprEnd++;
+           exprEnd += 2;
+           continue;
+        }
+        
+        if (c === '{') braceCount++;
+        else if (c === '}') braceCount--;
+        else if (c === '(') parenCount++;
+        else if (c === ')') parenCount--;
+        
+        if (c === ';' && braceCount === 0 && parenCount === 0) {
+          exprEnd++;
+          break;
+        }
+        if (c === '\n' && braceCount === 0 && parenCount === 0) {
+          break;
+        }
+        exprEnd++;
+      }
+      const expr = rawCode.slice(idx, rawCode[exprEnd - 1] === ';' ? exprEnd - 1 : exprEnd).trim();
+      return {
+        replacement: `const __defaultExport = (${expr});\nmodule.exports.default = __defaultExport;\nif (typeof __defaultExport === 'object' && __defaultExport !== null) { Object.assign(module.exports, __defaultExport); }\n`,
+        newIndex: exprEnd
+      };
+    }
+    
+    if (word === 'const' || word === 'let' || word === 'var') {
+      idx += word.length;
+      idx = skipWhitespaceAndComments(idx);
+      const { word: varName } = readWord(idx);
+      while (idx < len && rawCode[idx] !== '=') idx++;
+      if (rawCode[idx] === '=') idx++;
+      return {
+        replacement: `${word} ${varName} = module.exports.${varName} =`,
+        newIndex: idx
+      };
+    }
+    
+    if (word === 'function' || word === 'class') {
+      idx += word.length;
+      idx = skipWhitespaceAndComments(idx);
+      const { word: name } = readWord(idx);
+      if (word === 'function') {
+        return {
+          replacement: `module.exports.${name} = ${name};\nfunction ${name}`,
+          newIndex: idx + name.length
+        };
+      } else {
+        return {
+          replacement: `const ${name} = module.exports.${name} = class ${name}`,
+          newIndex: idx + name.length
+        };
+      }
+    }
+    
+    if (rawCode[idx] === '{') {
+      let tokens = [];
+      while (idx < len) {
+        idx = skipWhitespaceAndComments(idx);
+        const { word: tWord } = readWord(idx);
+        if (tWord) {
+          tokens.push({ type: 'word', value: tWord });
+          idx += tWord.length;
+        } else {
+          const c = rawCode[idx];
+          tokens.push({ type: 'punct', value: c });
+          idx++;
+          if (c === '}') break;
+        }
+      }
+      
+      idx = skipWhitespaceAndComments(idx);
+      let { word: fromWord } = readWord(idx);
+      
+      let reexports = [];
+      let t = 1; 
+      while (t < tokens.length && tokens[t].value !== '}') {
+        if (tokens[t].value === ',') { t++; continue; }
+        const orig = tokens[t].value;
+        let alias = orig;
+        t++;
+        if (tokens[t] && tokens[t].value === 'as') {
+          t++;
+          alias = tokens[t].value;
+          t++;
+        }
+        reexports.push({ orig, alias });
+      }
+      
+      if (fromWord === 'from') {
+        idx += 4;
+        idx = skipWhitespaceAndComments(idx);
+        if (rawCode[idx] === "'" || rawCode[idx] === '"') {
+          const { str: specifier, index: afterStr } = readString(idx);
+          idx = afterStr;
+          idx = skipWhitespaceAndComments(idx);
+          const { word: attrWord } = readWord(idx);
+          if (attrWord === 'with' || attrWord === 'assert') {
+             idx += attrWord.length;
+             idx = skipWhitespaceAndComments(idx);
+             if (rawCode[idx] === '{') {
+                while (idx < len && rawCode[idx] !== '}') idx++;
+                if (rawCode[idx] === '}') idx++;
+             }
+          }
+          if (rawCode[idx] === ';') idx++;
+          
+          dependencies.add(specifier);
+          let lines = [];
+          for (const { orig, alias } of reexports) {
+            lines.push(`module.exports.${alias} = require('${specifier}').${orig};`);
+          }
+          return {
+            replacement: lines.join('\n') + (lines.length > 0 ? '\n' : ''),
+            newIndex: idx
+          };
+        }
+      } else {
+        if (rawCode[idx] === ';') idx++;
+        let lines = [];
+        for (const { orig, alias } of reexports) {
+          lines.push(`module.exports.${alias} = ${orig};`);
+        }
+        return {
+          replacement: lines.join('\n') + (lines.length > 0 ? '\n' : ''),
+          newIndex: idx
+        };
+      }
+    }
+
+    if (rawCode[idx] === '*') {
+      idx++;
+      idx = skipWhitespaceAndComments(idx);
+      let { word: fromWord } = readWord(idx);
+      if (fromWord === 'from') {
+        idx += 4;
+        idx = skipWhitespaceAndComments(idx);
+        if (rawCode[idx] === "'" || rawCode[idx] === '"') {
+          const { str: specifier, index: afterStr } = readString(idx);
+          idx = afterStr;
+          idx = skipWhitespaceAndComments(idx);
+          if (rawCode[idx] === ';') idx++;
+          
+          dependencies.add(specifier);
+          return {
+            replacement: `Object.assign(module.exports, require('${specifier}'));`,
+            newIndex: idx
+          };
+        }
+      }
+    }
+
+    throw new BuildError(`Unsupported export syntax`, filePath);
+  }
+
+  let lastRegexNonWhitespace = '';
+
+  while (i < len) {
+    const char = rawCode[i];
+    const nextChar = rawCode[i + 1];
+    
+    if (isEscaped) {
+      output += char;
+      isEscaped = false;
+      i++;
+      continue;
+    }
+    
+    if (char === '\\' && (inSingleQuote || inDoubleQuote || inTemplateLiteral || inRegex)) {
+      output += char;
+      isEscaped = true;
+      i++;
+      continue;
+    }
+
+    if (char === "'" && !inDoubleQuote && !inTemplateLiteral && !inRegex) {
+      inSingleQuote = !inSingleQuote;
+      output += char;
+      i++;
+      continue;
+    }
+    if (char === '"' && !inSingleQuote && !inTemplateLiteral && !inRegex) {
+      inDoubleQuote = !inDoubleQuote;
+      output += char;
+      i++;
+      continue;
+    }
+    if (char === '\`' && !inSingleQuote && !inDoubleQuote && !inRegex) {
+      inTemplateLiteral = !inTemplateLiteral;
+      output += char;
+      i++;
+      continue;
+    }
+    
+    if (inSingleQuote || inDoubleQuote || inTemplateLiteral) {
+      output += char;
+      i++;
+      continue;
+    }
+
+    if (char === '/' && nextChar === '/' && !inRegex) {
+      output += char + nextChar;
+      i += 2;
+      while (i < len && rawCode[i] !== '\n') {
+        output += rawCode[i];
+        i++;
+      }
+      continue;
+    }
+    if (char === '/' && nextChar === '*' && !inRegex) {
+      output += char + nextChar;
+      i += 2;
+      while (i < len && !(rawCode[i] === '*' && rawCode[i + 1] === '/')) {
+        output += rawCode[i];
+        i++;
+      }
+      if (i < len) {
+        output += '*/';
+        i += 2;
+      }
+      continue;
+    }
+
+    if (char === '/' && !inRegex) {
+      const isRegexStart = /[(,=:[!&|?{};]/.test(lastRegexNonWhitespace) || /\breturn$/.test(output.trim());
+      if (isRegexStart) {
+        inRegex = true;
+        output += char;
+        i++;
+        continue;
+      }
+    } else if (char === '/' && inRegex) {
+      inRegex = false;
+      output += char;
+      i++;
+      continue;
+    }
+    if (inRegex) {
+      output += char;
+      i++;
+      continue;
+    }
+
+    if (!/\s/.test(char)) {
+      lastRegexNonWhitespace = char;
+    }
+
+    if (/[a-zA-Z_$]/.test(char)) {
+      let prevIdx = i - 1;
+      while (prevIdx >= 0 && /\s/.test(rawCode[prevIdx])) prevIdx--;
+      const prevChar = prevIdx >= 0 ? rawCode[prevIdx] : '';
+
+      const { word, index: afterWord } = readWord(i);
+      if (prevChar === '.') {
+         output += word;
+         i = afterWord;
+         continue;
+      }
+      if (word === 'require') {
+         let rIdx = skipWhitespaceAndComments(afterWord);
+         if (rawCode[rIdx] === '(') {
+           rIdx++;
+           rIdx = skipWhitespaceAndComments(rIdx);
+           if (rawCode[rIdx] === "'" || rawCode[rIdx] === '"' || rawCode[rIdx] === '`') {
+             const { str: specifier } = readString(rIdx);
+             dependencies.add(specifier);
+           }
+         }
+         output += word;
+         i = afterWord;
+      } else if (word === 'import') {
+         const { replacement, newIndex } = parseImport(i);
+         output += replacement;
+         i = newIndex;
+      } else if (word === 'export') {
+         const { replacement, newIndex } = parseExport(i);
+         output += replacement;
+         i = newIndex;
+      } else {
+         output += word;
+         i = afterWord;
+      }
+      continue;
+    }
+
+    output += char;
+    i++;
+  }
 
   return {
-    code,
+    code: output,
     dependencies: Array.from(dependencies)
   };
 }
