@@ -101,8 +101,71 @@ function checkUnsupportedExtension(filePath) {
  * Pure stdlib — no external packages.
  */
 export function minifyCss(css) {
-  // Remove /* ... */ block comments
-  let out = css.replace(/\/\*[\s\S]*?\*\//g, '');
+  let out = '';
+  let inDouble = false;
+  let inSingle = false;
+  let isEscaped = false;
+  let i = 0;
+  const len = css.length;
+
+  while (i < len) {
+    const c = css[i];
+    if (isEscaped) {
+      out += c;
+      isEscaped = false;
+      i++;
+      continue;
+    }
+
+    if (c === '\\') {
+      out += c;
+      isEscaped = true;
+      i++;
+      continue;
+    }
+
+    if (inSingle) {
+      out += c;
+      if (c === "'") inSingle = false;
+      i++;
+      continue;
+    }
+
+    if (inDouble) {
+      out += c;
+      if (c === '"') inDouble = false;
+      i++;
+      continue;
+    }
+
+    if (c === "'") {
+      out += c;
+      inSingle = true;
+      i++;
+      continue;
+    }
+
+    if (c === '"') {
+      out += c;
+      inDouble = true;
+      i++;
+      continue;
+    }
+
+    // Comment detection
+    if (c === '/' && i + 1 < len && css[i + 1] === '*') {
+      i += 2;
+      while (i < len - 1 && !(css[i] === '*' && css[i + 1] === '/')) {
+        i++;
+      }
+      i += 2;
+      continue;
+    }
+
+    out += c;
+    i++;
+  }
+
   // Collapse whitespace sequences (newlines, tabs, multiple spaces) to single space
   out = out.replace(/\s+/g, ' ');
   // Remove spaces around structural tokens: { } : ; ,
@@ -451,12 +514,91 @@ export function transformModuleCode(rawCode, filePath) {
     if (word === 'const' || word === 'let' || word === 'var') {
       idx += word.length;
       idx = skipWhitespaceAndComments(idx);
-      const { word: varName } = readWord(idx);
-      while (idx < len && rawCode[idx] !== '=') idx++;
-      if (rawCode[idx] === '=') idx++;
+      
+      const firstChar = rawCode[idx];
+      if (firstChar === '{' || firstChar === '[') {
+        const { line, column } = getLineColumn(rawCode, idx);
+        throw new BuildError({
+          message: `Destructured export declarations (export ${word} ${firstChar}...${firstChar === '{' ? '}' : ']'} = ...) are not supported.`,
+          file: filePath,
+          line,
+          column,
+          suggestion: `Declare the variable first, then export: ${word} ${firstChar}...${firstChar === '{' ? '}' : ']'} = ...; export { ... };`,
+          category: 'Syntax'
+        });
+      }
+
+      let curr = idx;
+      let depth = 0;
+      let inStr = false;
+      let strChar = '';
+      let isFindingName = true;
+      
+      let replacementStr = `${word} `;
+      let chunkStart = idx;
+
+      while (curr < len) {
+        const c = rawCode[curr];
+
+        if (inStr) {
+          if (c === '\\') curr++;
+          else if (c === strChar) inStr = false;
+          curr++;
+          continue;
+        }
+
+        if (c === '"' || c === "'" || c === '`') {
+          inStr = true;
+          strChar = c;
+          curr++;
+          continue;
+        }
+
+        if (c === '{' || c === '[' || c === '(') depth++;
+        else if (c === '}' || c === ']' || c === ')') depth--;
+
+        if (depth === 0) {
+          if (isFindingName) {
+            const skipRes = skipWhitespaceAndComments(curr);
+            if (skipRes > curr) {
+              curr = skipRes;
+              continue;
+            }
+            const wRes = readWord(curr);
+            if (wRes.word) {
+              const varName = wRes.word;
+              replacementStr += `${varName} = module.exports.${varName} `;
+              curr += varName.length;
+              chunkStart = curr;
+              isFindingName = false;
+              continue;
+            }
+          } else {
+            if (c === ',') {
+              replacementStr += rawCode.slice(chunkStart, curr) + ', ';
+              curr++;
+              chunkStart = curr;
+              isFindingName = true;
+              continue;
+            }
+            if (c === ';' || c === '\n') {
+              break;
+            }
+          }
+        }
+        
+        curr++;
+      }
+      
+      replacementStr += rawCode.slice(chunkStart, curr);
+      if (rawCode[curr] === ';') {
+        replacementStr += ';';
+        curr++;
+      }
+      
       return {
-        replacement: `${word} ${varName} = module.exports.${varName} =`,
-        newIndex: idx
+        replacement: replacementStr,
+        newIndex: curr
       };
     }
     
