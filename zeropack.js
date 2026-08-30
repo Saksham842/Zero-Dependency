@@ -153,7 +153,9 @@ ${colors.bold('OPTIONS:')}
   ${colors.yellow('--entry <path>')}     Entry JavaScript file ${colors.dim('(default: src/index.js)')}
   ${colors.yellow('--out <path>')}       Output bundle path ${colors.dim('(default: dist/bundle.js)')}
   ${colors.yellow('--serve')}            Start native HTTP static dev server & RFC 6455 Live Reload
+  ${colors.yellow('--watch')}            Watch source files and rebuild on change (no server)
   ${colors.yellow('--port <number>')}    Port for the dev server ${colors.dim('(default: 3000)')}
+  ${colors.yellow('--host <address>')}   Host address for dev server ${colors.dim('(default: 127.0.0.1)')}
   ${colors.yellow('--minify')}           Minify output bundle (removes comments & whitespace)
   ${colors.yellow('--env <path>')}       Custom path to .env file ${colors.dim('(default: .env)')}
   ${colors.yellow('--help, -h')}         Display this help message
@@ -199,6 +201,14 @@ export function parseCliArgs(args = process.argv.slice(2)) {
       type: 'string',
       default: '.env'
     },
+    watch: {
+      type: 'boolean',
+      default: false
+    },
+    host: {
+      type: 'string',
+      default: '127.0.0.1'
+    },
     help: {
       type: 'boolean',
       short: 'h',
@@ -224,7 +234,9 @@ export function parseCliArgs(args = process.argv.slice(2)) {
       entry,
       out: values.out,
       serve: Boolean(values.serve),
+      watch: Boolean(values.watch),
       port: parseInt(values.port, 10) || 3000,
+      host: values.host || '127.0.0.1',
       minify: Boolean(values.minify),
       env: values.env,
       help: Boolean(values.help),
@@ -257,7 +269,7 @@ export async function runCli(args = process.argv.slice(2)) {
   }
 
   // Dynamic import of bundler/server so CLI file can be run independently or concatenated
-  
+  const { build: buildDependencyGraph, rebuild: incrementalRebuild } = await import('./graph.js');
   
 
   const startTime = performance.now();
@@ -280,12 +292,38 @@ export async function runCli(args = process.argv.slice(2)) {
       
       await startDevServer({
         port: config.port,
+        host: config.host,
         entry: config.entry,
         out: config.out,
         minify: config.minify,
         rootDir: process.cwd(),
         stats: result.stats
       });
+    } else if (config.watch) {
+      // --watch mode: rebuild on file change without starting the HTTP server
+      const fs = await import('node:fs');
+      const watchDir = path.resolve(process.cwd(), path.dirname(config.entry));
+      logger.info(`Watching ${colors.cyan(watchDir)} for changes...`);
+      let debounceTimer = null;
+      const watcher = fs.default.watch(watchDir, { recursive: true }, (_event, filename) => {
+        if (!filename || filename.endsWith('bundle.js')) return;
+        if (debounceTimer) clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(async () => {
+          debounceTimer = null;
+          logger.hmr(`File changed: ${colors.cyan(filename)} — rebuilding...`);
+          try {
+            const t = performance.now();
+            const g = buildDependencyGraph(config.entry);
+            const r = bundleToFile(g, config.out, { minify: config.minify });
+            logger.success(`Rebuilt in ${colors.bold((performance.now() - t).toFixed(0) + 'ms')} (${colors.cyan(r.size + ' bytes')})`);
+          } catch (err) {
+            logger.error(`Watch rebuild failed: ${err.message}`);
+          }
+        }, 100);
+      });
+      watcher.on('error', (err) => logger.warn(`Watcher error: ${err.message}`));
+      // Keep process alive
+      process.on('SIGINT', () => { watcher.close(); process.exit(0); });
     }
   } catch (error) {
     if (error.name === 'BuildError') {
@@ -364,7 +402,7 @@ export function resolveModulePath(fromFile, specifier, rootDir = process.cwd()) 
   }
 
   // 2. Try file extensions
-  const extensions = ['.js', '.mjs', '.cjs', '.ts', '.jsx', '.tsx', '.json'];
+  const extensions = ['.js', '.mjs', '.cjs', '.ts', '.jsx', '.tsx', '.json', '.css'];
   for (const ext of extensions) {
     const withExt = candidate + ext;
     if (fs.existsSync(withExt) && fs.statSync(withExt).isFile()) {
@@ -374,7 +412,7 @@ export function resolveModulePath(fromFile, specifier, rootDir = process.cwd()) 
 
   // 3. Try directory index file
   if (fs.existsSync(candidate) && fs.statSync(candidate).isDirectory()) {
-    for (const ext of extensions) {
+    for (const ext of ['.js', '.mjs', '.cjs', '.ts', '.jsx', '.tsx', '.json', '.css']) {
       const indexFile = path.join(candidate, `index${ext}`);
       if (fs.existsSync(indexFile) && fs.statSync(indexFile).isFile()) {
         checkUnsupportedExtension(indexFile);
@@ -413,6 +451,20 @@ function checkUnsupportedExtension(filePath) {
 }
 
 /**
+ * Minifies a CSS string: strips comments and collapses whitespace.
+ * Pure stdlib — no external packages.
+ */
+export function minifyCss(css) {
+  // Remove /* ... */ block comments
+  let out = css.replace(/\/\*[\s\S]*?\*\//g, '');
+  // Collapse whitespace sequences (newlines, tabs, multiple spaces) to single space
+  out = out.replace(/\s+/g, ' ');
+  // Remove spaces around structural tokens: { } : ; ,
+  out = out.replace(/\s*([{}:;,>~+])\s*/g, '$1');
+  return out.trim();
+}
+
+/**
  * Extracts import/require specifiers and transforms ESM syntax into runtime CJS format.
  */
 export function transformModuleCode(rawCode, filePath) {
@@ -425,6 +477,24 @@ export function transformModuleCode(rawCode, filePath) {
       code: `module.exports = ${rawCode.trim() || '{}'};`,
       dependencies: []
     };
+  }
+
+  // CSS module: minify and generate a style-injection JS module
+  if (filePath.endsWith('.css')) {
+    const minified = minifyCss(rawCode);
+    // Escape backticks and backslashes so the CSS is safe inside a template literal
+    const escaped = minified.replace(/\\/g, '\\\\').replace(/`/g, '\\`');
+    const code = [
+      `const __css = \`${escaped}\`;`,
+      `if (typeof document !== 'undefined') {`,
+      `  const __style = document.createElement('style');`,
+      `  __style.setAttribute('data-zeropack', ${JSON.stringify(filePath)});`,
+      `  __style.textContent = __css;`,
+      `  document.head.appendChild(__style);`,
+      `}`,
+      `module.exports = __css;`
+    ].join('\n');
+    return { code, dependencies: [] };
   }
 
   let i = 0;
@@ -2199,7 +2269,88 @@ export function decodeWebSocketFrame(buffer) {
 }
 
 // -----------------------------------------------------------------------------
-// 3. Dev Server & HMR Engine
+// 3. Terminal UI (TUI) — Live Dev Server Dashboard
+// Raw ANSI VT100 escape codes only. Zero external packages.
+// -----------------------------------------------------------------------------
+const tui = {
+  // Cursor & screen control
+  hide:   () => process.stdout.write('\x1b[?25l'),
+  show:   () => process.stdout.write('\x1b[?25h'),
+  home:   () => process.stdout.write('\x1b[H'),
+  clear:  () => process.stdout.write('\x1b[2J\x1b[H'),
+  up:     (n) => process.stdout.write(`\x1b[${n}A`),
+  eraseLine: () => process.stdout.write('\x1b[2K\r'),
+
+  // Box-drawing helpers (72-char wide box)
+  W: 72,
+  top:    (title) => `\x1b[36m\u250c${'\u2500'.repeat(4)} \x1b[1m${title}\x1b[22m ${'\u2500'.repeat(Math.max(0, 66 - title.length))}\u2510\x1b[0m`,
+  mid:    () => `\x1b[36m\u251c${'\u2500'.repeat(70)}\u2524\x1b[0m`,
+  bot:    () => `\x1b[36m\u2514${'\u2500'.repeat(70)}\u2518\x1b[0m`,
+  row:    (text) => {
+    // Strip ANSI for length calculation
+    const plain = text.replace(/\x1b\[[\d;]*m/g, '');
+    const pad = Math.max(0, 68 - plain.length);
+    return `\x1b[36m\u2502\x1b[0m ${text}${' '.repeat(pad)}\x1b[36m\u2502\x1b[0m`;
+  }
+};
+
+const MAX_ACTIVITY = 5;
+const _tuiState = { lines: 0, activity: [], url: '', wsUrl: '', dashUrl: '' };
+
+function _tuiPush(msg) {
+  _tuiState.activity.unshift(msg);
+  if (_tuiState.activity.length > MAX_ACTIVITY) _tuiState.activity.length = MAX_ACTIVITY;
+}
+
+function formatBytes(b) {
+  if (b < 1024) return b + ' B';
+  if (b < 1048576) return (b / 1024).toFixed(1) + ' KB';
+  return (b / 1048576).toFixed(2) + ' MB';
+}
+
+export function renderTUI(stats, { url = _tuiState.url, wsUrl = _tuiState.wsUrl, dashUrl = _tuiState.dashUrl } = {}) {
+  // Persist URLs for subsequent renders
+  if (url) _tuiState.url = url;
+  if (wsUrl) _tuiState.wsUrl = wsUrl;
+  if (dashUrl) _tuiState.dashUrl = dashUrl;
+
+  const isFailed = stats && stats.status === 'failed';
+  const statusBadge = isFailed
+    ? `\x1b[41m\x1b[37m FAILED \x1b[0m`
+    : `\x1b[42m\x1b[30m LIVE \x1b[0m`;
+
+  const moduleStr = stats ? String(stats.moduleCount || 0) : '--';
+  const sizeStr   = stats ? formatBytes(stats.minifiedSize || 0) : '--';
+  const timeStr   = stats ? (stats.buildTimeMs || 0) + 'ms' : '--';
+  const ratioStr  = stats ? (stats.compressionRatio || '0%') : '--';
+
+  const lines = [
+    tui.top('⚡ ZeroPack Dev Server'),
+    tui.row(`Status: ${statusBadge}  Modules: \x1b[96m${moduleStr}\x1b[0m   Bundle: \x1b[96m${sizeStr}\x1b[0m   Time: \x1b[96m${timeStr}\x1b[0m   Saved: \x1b[92m${ratioStr}\x1b[0m`),
+    tui.mid(),
+    tui.row(`\x1b[2m App:\x1b[0m  \x1b[4m\x1b[32m${_tuiState.url}\x1b[0m`),
+    tui.row(`\x1b[2mDash:\x1b[0m  \x1b[4m\x1b[96m${_tuiState.dashUrl}\x1b[0m`),
+    tui.row(`\x1b[2m  WS:\x1b[0m  \x1b[2m${_tuiState.wsUrl}\x1b[0m`),
+    tui.mid(),
+  ];
+
+  for (let i = 0; i < MAX_ACTIVITY; i++) {
+    const entry = _tuiState.activity[i] || '';
+    lines.push(tui.row(entry ? `\x1b[2m${entry}\x1b[0m` : ''));
+  }
+  lines.push(tui.bot());
+
+  // If we've rendered before, move cursor up to overwrite
+  if (_tuiState.lines > 0) {
+    tui.up(_tuiState.lines);
+  }
+  _tuiState.lines = lines.length;
+
+  process.stdout.write(lines.map(l => '\x1b[2K' + l).join('\n') + '\n');
+}
+
+// -----------------------------------------------------------------------------
+// 4. Dev Server & HMR Engine
 // -----------------------------------------------------------------------------
 export async function startDevServer(options = {}) {
   const {
@@ -2231,6 +2382,12 @@ export async function startDevServer(options = {}) {
 
   let isBuilding = false;
   let pendingBuild = false;
+  let httpRequestLog = [];
+
+  function logActivity(msg) {
+    _tuiPush(msg);
+    renderTUI(currentStats);
+  }
 
   // Initial / Rebuild compilation
   function compile() {
@@ -2242,7 +2399,7 @@ export async function startDevServer(options = {}) {
       const result = bundleToFile(graph, outputPath, { minify, hmr: true });
       result.stats.status = 'success';
       currentStats = result.stats;
-      logger.hmr(`Rebuilt bundle: ${colors.green(result.size + ' bytes')} (${colors.gray(result.hash.slice(0, 10))})`);
+      logActivity(`\u26a1 Rebuilt  ${colors.green(result.size + ' B')}  ${colors.gray(result.hash.slice(0, 10))}`);
       broadcast({ type: 'status', status: 'success', stats: currentStats });
       return result;
     } catch (err) {
@@ -2367,6 +2524,7 @@ export async function startDevServer(options = {}) {
         'Cache-Control': 'no-cache, no-store, must-revalidate'
       });
       res.end(content);
+      logActivity(`GET ${pathname}  ${colors.gray(mimeType.split(';')[0])}`);
       return;
     }
 
@@ -2524,14 +2682,28 @@ export async function startDevServer(options = {}) {
       const address = server.address();
       const actualPort = typeof address === 'object' && address ? address.port : port;
       startWatchers();
-      logger.server(`Development server running at: ${colors.green(colors.bold(`http://${host}:${actualPort}/`))}`);
-      logger.server(`Developer Dashboard active at: ${colors.brightCyan(colors.bold(`http://${host}:${actualPort}/__zeropack`))}`);
-      logger.server(`HMR WebSocket endpoint active at: ${colors.cyan(colors.bold(`ws://${host}:${actualPort}/__zeropack_hmr`))}`);
-      logger.info(`Watching directory: ${colors.gray(watchDir)}`);
+
+      const url     = `http://${host}:${actualPort}/`;
+      const dashUrl = `http://${host}:${actualPort}/__zeropack`;
+      const wsUrl   = `ws://${host}:${actualPort}/__zeropack_hmr`;
+
+      // First render with fresh URLs
+      tui.hide();
+      console.log(''); // blank line before TUI
+      renderTUI(currentStats, { url, dashUrl, wsUrl });
+      _tuiPush(`Server started on port ${actualPort}`);
+      renderTUI(currentStats);
+
+      // Restore cursor on exit
+      const onExit = () => { tui.show(); process.exit(0); };
+      process.once('SIGINT', onExit);
+      process.once('SIGTERM', onExit);
+
       resolve({ server, broadcast, close: closeServer });
     });
 
     server.on('error', (err) => {
+      tui.show();
       if (err.code === 'EADDRINUSE') {
         logger.error(`Port ${port} is already in use. Please specify another port with --port`);
       } else {

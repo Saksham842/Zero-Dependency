@@ -156,7 +156,88 @@ export function decodeWebSocketFrame(buffer) {
 }
 
 // -----------------------------------------------------------------------------
-// 3. Dev Server & HMR Engine
+// 3. Terminal UI (TUI) — Live Dev Server Dashboard
+// Raw ANSI VT100 escape codes only. Zero external packages.
+// -----------------------------------------------------------------------------
+const tui = {
+  // Cursor & screen control
+  hide:   () => process.stdout.write('\x1b[?25l'),
+  show:   () => process.stdout.write('\x1b[?25h'),
+  home:   () => process.stdout.write('\x1b[H'),
+  clear:  () => process.stdout.write('\x1b[2J\x1b[H'),
+  up:     (n) => process.stdout.write(`\x1b[${n}A`),
+  eraseLine: () => process.stdout.write('\x1b[2K\r'),
+
+  // Box-drawing helpers (72-char wide box)
+  W: 72,
+  top:    (title) => `\x1b[36m\u250c${'\u2500'.repeat(4)} \x1b[1m${title}\x1b[22m ${'\u2500'.repeat(Math.max(0, 66 - title.length))}\u2510\x1b[0m`,
+  mid:    () => `\x1b[36m\u251c${'\u2500'.repeat(70)}\u2524\x1b[0m`,
+  bot:    () => `\x1b[36m\u2514${'\u2500'.repeat(70)}\u2518\x1b[0m`,
+  row:    (text) => {
+    // Strip ANSI for length calculation
+    const plain = text.replace(/\x1b\[[\d;]*m/g, '');
+    const pad = Math.max(0, 68 - plain.length);
+    return `\x1b[36m\u2502\x1b[0m ${text}${' '.repeat(pad)}\x1b[36m\u2502\x1b[0m`;
+  }
+};
+
+const MAX_ACTIVITY = 5;
+const _tuiState = { lines: 0, activity: [], url: '', wsUrl: '', dashUrl: '' };
+
+function _tuiPush(msg) {
+  _tuiState.activity.unshift(msg);
+  if (_tuiState.activity.length > MAX_ACTIVITY) _tuiState.activity.length = MAX_ACTIVITY;
+}
+
+function formatBytes(b) {
+  if (b < 1024) return b + ' B';
+  if (b < 1048576) return (b / 1024).toFixed(1) + ' KB';
+  return (b / 1048576).toFixed(2) + ' MB';
+}
+
+export function renderTUI(stats, { url = _tuiState.url, wsUrl = _tuiState.wsUrl, dashUrl = _tuiState.dashUrl } = {}) {
+  // Persist URLs for subsequent renders
+  if (url) _tuiState.url = url;
+  if (wsUrl) _tuiState.wsUrl = wsUrl;
+  if (dashUrl) _tuiState.dashUrl = dashUrl;
+
+  const isFailed = stats && stats.status === 'failed';
+  const statusBadge = isFailed
+    ? `\x1b[41m\x1b[37m FAILED \x1b[0m`
+    : `\x1b[42m\x1b[30m LIVE \x1b[0m`;
+
+  const moduleStr = stats ? String(stats.moduleCount || 0) : '--';
+  const sizeStr   = stats ? formatBytes(stats.minifiedSize || 0) : '--';
+  const timeStr   = stats ? (stats.buildTimeMs || 0) + 'ms' : '--';
+  const ratioStr  = stats ? (stats.compressionRatio || '0%') : '--';
+
+  const lines = [
+    tui.top('⚡ ZeroPack Dev Server'),
+    tui.row(`Status: ${statusBadge}  Modules: \x1b[96m${moduleStr}\x1b[0m   Bundle: \x1b[96m${sizeStr}\x1b[0m   Time: \x1b[96m${timeStr}\x1b[0m   Saved: \x1b[92m${ratioStr}\x1b[0m`),
+    tui.mid(),
+    tui.row(`\x1b[2m App:\x1b[0m  \x1b[4m\x1b[32m${_tuiState.url}\x1b[0m`),
+    tui.row(`\x1b[2mDash:\x1b[0m  \x1b[4m\x1b[96m${_tuiState.dashUrl}\x1b[0m`),
+    tui.row(`\x1b[2m  WS:\x1b[0m  \x1b[2m${_tuiState.wsUrl}\x1b[0m`),
+    tui.mid(),
+  ];
+
+  for (let i = 0; i < MAX_ACTIVITY; i++) {
+    const entry = _tuiState.activity[i] || '';
+    lines.push(tui.row(entry ? `\x1b[2m${entry}\x1b[0m` : ''));
+  }
+  lines.push(tui.bot());
+
+  // If we've rendered before, move cursor up to overwrite
+  if (_tuiState.lines > 0) {
+    tui.up(_tuiState.lines);
+  }
+  _tuiState.lines = lines.length;
+
+  process.stdout.write(lines.map(l => '\x1b[2K' + l).join('\n') + '\n');
+}
+
+// -----------------------------------------------------------------------------
+// 4. Dev Server & HMR Engine
 // -----------------------------------------------------------------------------
 export async function startDevServer(options = {}) {
   const {
@@ -188,6 +269,12 @@ export async function startDevServer(options = {}) {
 
   let isBuilding = false;
   let pendingBuild = false;
+  let httpRequestLog = [];
+
+  function logActivity(msg) {
+    _tuiPush(msg);
+    renderTUI(currentStats);
+  }
 
   // Initial / Rebuild compilation
   function compile() {
@@ -199,7 +286,7 @@ export async function startDevServer(options = {}) {
       const result = bundleToFile(graph, outputPath, { minify, hmr: true });
       result.stats.status = 'success';
       currentStats = result.stats;
-      logger.hmr(`Rebuilt bundle: ${colors.green(result.size + ' bytes')} (${colors.gray(result.hash.slice(0, 10))})`);
+      logActivity(`\u26a1 Rebuilt  ${colors.green(result.size + ' B')}  ${colors.gray(result.hash.slice(0, 10))}`);
       broadcast({ type: 'status', status: 'success', stats: currentStats });
       return result;
     } catch (err) {
@@ -324,6 +411,7 @@ export async function startDevServer(options = {}) {
         'Cache-Control': 'no-cache, no-store, must-revalidate'
       });
       res.end(content);
+      logActivity(`GET ${pathname}  ${colors.gray(mimeType.split(';')[0])}`);
       return;
     }
 
@@ -481,14 +569,28 @@ export async function startDevServer(options = {}) {
       const address = server.address();
       const actualPort = typeof address === 'object' && address ? address.port : port;
       startWatchers();
-      logger.server(`Development server running at: ${colors.green(colors.bold(`http://${host}:${actualPort}/`))}`);
-      logger.server(`Developer Dashboard active at: ${colors.brightCyan(colors.bold(`http://${host}:${actualPort}/__zeropack`))}`);
-      logger.server(`HMR WebSocket endpoint active at: ${colors.cyan(colors.bold(`ws://${host}:${actualPort}/__zeropack_hmr`))}`);
-      logger.info(`Watching directory: ${colors.gray(watchDir)}`);
+
+      const url     = `http://${host}:${actualPort}/`;
+      const dashUrl = `http://${host}:${actualPort}/__zeropack`;
+      const wsUrl   = `ws://${host}:${actualPort}/__zeropack_hmr`;
+
+      // First render with fresh URLs
+      tui.hide();
+      console.log(''); // blank line before TUI
+      renderTUI(currentStats, { url, dashUrl, wsUrl });
+      _tuiPush(`Server started on port ${actualPort}`);
+      renderTUI(currentStats);
+
+      // Restore cursor on exit
+      const onExit = () => { tui.show(); process.exit(0); };
+      process.once('SIGINT', onExit);
+      process.once('SIGTERM', onExit);
+
       resolve({ server, broadcast, close: closeServer });
     });
 
     server.on('error', (err) => {
+      tui.show();
       if (err.code === 'EADDRINUSE') {
         logger.error(`Port ${port} is already in use. Please specify another port with --port`);
       } else {
