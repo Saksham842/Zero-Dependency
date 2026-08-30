@@ -14,6 +14,8 @@ import { resolveModulePath, transformModuleCode, BuildError } from './parser.js'
 const state = {
   // Map canonical absolute path -> ModuleState
   modules: new Map(),
+  // Map module id -> ModuleState (O(1) index)
+  byId: new Map(),
   // Counter for assigning stable numeric IDs (entry will be 0 after first full build)
   nextId: 0,
   // Root directory used for resolving absolute entry paths
@@ -83,12 +85,22 @@ function ensureModule(filePath) {
   // If module exists, check if source changed
   if (mod) {
     const { srcHash, code, dependencies } = processFile(absPath);
-    if (mod.hash === srcHash) {
-      // Source unchanged – reuse existing transformed code & deps.
+    
+    // Check if any mapped children are missing from the graph index
+    let allDepsExist = true;
+    for (const childId of Object.values(mod.mapping)) {
+      if (!state.byId.has(childId)) {
+        allDepsExist = false;
+        break;
+      }
+    }
+
+    if (mod.hash === srcHash && Object.keys(mod.mapping).length === mod.dependencies.length && allDepsExist) {
+      // Source unchanged and all dependencies exist – reuse existing transformed code & deps.
       state.metrics.modulesReused++;
       return mod;
     }
-    // Source changed – we will reprocess.
+    // Source changed or deps missing – we will reprocess.
     mod.code = code;
     mod.dependencies = dependencies;
     mod.hash = srcHash;
@@ -102,13 +114,14 @@ function ensureModule(filePath) {
     mod.dependencies = dependencies;
     mod.hash = srcHash;
     state.modules.set(absPath, mod);
+    state.byId.set(id, mod);
     state.metrics.modulesReprocessed++;
   }
 
   // Update forward dependencies (mapping) and reverse edges.
   // First, clear any old reverse links that may no longer be needed.
   for (const childId of Object.values(mod.mapping)) {
-    const child = [...state.modules.values()].find(m => m.id === childId);
+    const child = state.byId.get(childId);
     if (child) child.dependents.delete(mod.id);
   }
   mod.mapping = {};
@@ -134,6 +147,7 @@ function fullBuild(entryPath, rootDir = process.cwd()) {
   const start = Date.now();
   // Reset state but keep same nextId counter for deterministic ids across runs.
   state.modules.clear();
+  state.byId.clear();
   state.nextId = 0;
   state.rootDir = rootDir;
   // Reset metrics for this build.
@@ -151,13 +165,18 @@ function fullBuild(entryPath, rootDir = process.cwd()) {
   const entryMod = ensureModule(entryAbs);
   // Force entry ID to 0 for reproducibility (if not already).
   if (entryMod.id !== 0) {
-    const zeroMod = [...state.modules.values()].find(m => m.id === 0);
+    const zeroMod = state.byId.get(0);
     if (zeroMod) {
       const tmp = zeroMod.id;
       zeroMod.id = entryMod.id;
       entryMod.id = tmp;
+      // Update byId index
+      state.byId.set(zeroMod.id, zeroMod);
+      state.byId.set(entryMod.id, entryMod);
     } else {
+      state.byId.delete(entryMod.id);
       entryMod.id = 0;
+      state.byId.set(0, entryMod);
     }
   }
 
@@ -175,7 +194,7 @@ function collectDependents(startIds) {
     const id = stack.pop();
     if (visited.has(id)) continue;
     visited.add(id);
-    const mod = [...state.modules.values()].find(m => m.id === id);
+    const mod = state.byId.get(id);
     if (!mod) continue;
     for (const parentId of mod.dependents) {
       stack.push(parentId);
@@ -202,7 +221,7 @@ function incrementalBuild(entryPath, changedPaths) {
       if (old) {
         // Remove reverse edges from its dependents.
         for (const parentId of old.dependents) {
-          const parent = [...state.modules.values()].find(m => m.id === parentId);
+          const parent = state.byId.get(parentId);
           if (parent) {
             // Remove any mapping entries that point to the removed child module
             for (const [spec, childId] of Object.entries(parent.mapping)) {
@@ -213,6 +232,7 @@ function incrementalBuild(entryPath, changedPaths) {
           }
         }
         state.modules.delete(abs);
+        state.byId.delete(old.id);
         for (const depId of old.dependents) changedIds.add(depId);
       }
       continue;
@@ -221,6 +241,7 @@ function incrementalBuild(entryPath, changedPaths) {
       const mod = ensureModule(abs);
       changedIds.add(mod.id);
     } catch (e) {
+      if (e.name === 'BuildError') throw e;
       return { graph: fullBuild(entryPath, state.rootDir), fallback: true };
     }
   }
@@ -230,11 +251,12 @@ function incrementalBuild(entryPath, changedPaths) {
   if (entryMod) affectedIds.add(entryMod.id);
 
   for (const id of affectedIds) {
-    const mod = [...state.modules.values()].find(m => m.id === id);
+    const mod = state.byId.get(id);
     if (!mod) continue;
     try {
       ensureModule(mod.filePath);
     } catch (e) {
+      if (e.name === 'BuildError') throw e;
       return { graph: fullBuild(entryPath, state.rootDir), fallback: true };
     }
   }
@@ -252,9 +274,6 @@ export function build(entryPath, rootDir = process.cwd()) {
 
 export function rebuild(entryPath, changedPaths) {
   const result = incrementalBuild(entryPath, changedPaths);
-  if (result.fallback) {
-    return result.graph;
-  }
   return result.graph;
 }
 
@@ -265,6 +284,7 @@ export function getMetrics() {
 /** Internal helper for tests – resets entire in‑memory graph. */
 export function __resetForTest() {
   state.modules.clear();
+  state.byId.clear();
   state.nextId = 0;
   state.metrics = { totalModules: 0, modulesReused: 0, modulesReprocessed: 0, fullRebuilds: 0, incrementalRebuilds: 0, lastBuildDurationMs: 0 };
 }
