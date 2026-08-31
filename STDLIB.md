@@ -19,6 +19,7 @@ ZeroPack is a full-featured JavaScript bundler, minifier, and Live Reload dev se
 | **`crypto-js`** | `node:crypto` | Cryptographic module hashing using `crypto.createHash('sha256')` for modules and reproducible build verification, plus `sha1` for RFC 6455 handshakes. |
 | **`jest`** / **`mocha`** / **`vitest`** | `node:test` + `node:assert/strict` | Native test runner (Node.js >= 18) with full async test support, structured diagnostics, and no third-party test framework required. |
 | **`postcss`** / **`css-loader`** | `node:fs` + Native CSS String Parser | CSS files imported via `import './style.css'` are read with `node:fs`, minified with a native comment-stripping/whitespace-collapsing parser, and injected at runtime via `document.createElement('style')`. |
+| **`vm2`** / **`isolated-vm`** | `node:vm` | Sandboxed JavaScript execution via `vm.runInNewContext()`. Used in the test suite to execute bundled output in a clean scope, validating correctness without any third-party sandbox library. |
 
 ---
 

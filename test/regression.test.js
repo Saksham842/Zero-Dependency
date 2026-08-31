@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { minifyCss, transformModuleCode } from '../src/parser.js';
-import { minifyCode } from '../src/bundler.js';
+import { minifyCode } from '../src/bundler-minify.js';
 import { build, rebuild, __resetForTest } from '../src/graph.js';
 import fs from 'node:fs';
 import path from 'node:path';
