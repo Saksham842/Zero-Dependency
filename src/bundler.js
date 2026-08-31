@@ -1,169 +1,60 @@
+/**
+ * @module bundler
+ * @description IIFE bundle generator and state-machine JS minifier.
+ *
+ * Responsibilities:
+ *  1. `minifyCode` — streaming character-level minifier that strips comments
+ *     and collapses whitespace while preserving string/regex/template literals
+ *     and honouring ASI (Automatic Semicolon Insertion) semantics.
+ *  2. `generateBundle` — wraps the sorted module graph in a self-executing
+ *     IIFE with an embedded `require()` runtime; optionally injects the HMR
+ *     client stub and/or minifies the result.
+ *  3. `bundleToFile` — thin wrapper that calls `generateBundle` and writes the
+ *     result to disk, creating parent directories as needed.
+ *
+ * Replaces (npm ecosystem):
+ *  - `terser` / `uglify-js`  → `node:string_decoder` + native lexer
+ *  - `esbuild` bundle output  → hand-written IIFE runtime
+ *
+ * @requires node:fs
+ * @requires node:path
+ * @requires node:crypto
+ * @requires node:string_decoder
+ */
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { StringDecoder } from 'node:string_decoder';
 import { logger, colors } from './cli.js';
 
-/**
- * Pure zero-dependency minifier using string scanner and state machine.
- * Correctly preserves strings ('...', "...", `...`), template literals, and regexes
- * while stripping single-line comments, multi-line comments, and extraneous whitespace.
- */
-export function minifyCode(code) {
-  const decoder = new StringDecoder('utf8');
-  const buffer = Buffer.from(code);
-  const text = decoder.write(buffer) + decoder.end();
-
-  let output = '';
-  let i = 0;
-  const len = text.length;
-
-  let inSingleQuote = false;
-  let inDoubleQuote = false;
-  let inTemplateLiteral = false;
-  let inRegex = false;
-  let isEscaped = false;
-
-  while (i < len) {
-    const char = text[i];
-    const nextChar = i + 1 < len ? text[i + 1] : '';
-
-    // Handle escapes inside strings/regexes
-    if (isEscaped) {
-      output += char;
-      isEscaped = false;
-      i++;
-      continue;
-    }
-
-    if (char === '\\' && (inSingleQuote || inDoubleQuote || inTemplateLiteral || inRegex)) {
-      output += char;
-      isEscaped = true;
-      i++;
-      continue;
-    }
-
-    // Single-quote string literal
-    if (char === "'" && !inDoubleQuote && !inTemplateLiteral && !inRegex) {
-      inSingleQuote = !inSingleQuote;
-      output += char;
-      i++;
-      continue;
-    }
-
-    // Double-quote string literal
-    if (char === '"' && !inSingleQuote && !inTemplateLiteral && !inRegex) {
-      inDoubleQuote = !inDoubleQuote;
-      output += char;
-      i++;
-      continue;
-    }
-
-    // Template literal (backtick)
-    if (char === '`' && !inSingleQuote && !inDoubleQuote && !inRegex) {
-      inTemplateLiteral = !inTemplateLiteral;
-      output += char;
-      i++;
-      continue;
-    }
-
-    // If inside any string literal, keep characters exactly as-is
-    if (inSingleQuote || inDoubleQuote || inTemplateLiteral) {
-      output += char;
-      i++;
-      continue;
-    }
-
-    // Check for single-line comments //
-    if (char === '/' && nextChar === '/' && !inRegex) {
-      i += 2;
-      while (i < len && text[i] !== '\n' && text[i] !== '\r') {
-        i++;
-      }
-      continue;
-    }
-
-    // Check for multi-line comments /* ... */
-    if (char === '/' && nextChar === '*' && !inRegex) {
-      i += 2;
-      while (i < len && !(text[i] === '*' && text[i + 1] === '/')) {
-        i++;
-      }
-      i += 2; // skip */
-      continue;
-    }
-
-    // Check for Regex literal start (heuristic: preceded by punctuation or keyword)
-    if (char === '/' && !inRegex) {
-      const prevNonSpace = output.trim().slice(-1);
-      const isRegexStart = /[(,=:[!&|?{};]/.test(prevNonSpace) || output.trim().endsWith('return');
-      if (isRegexStart) {
-        inRegex = true;
-        output += char;
-        i++;
-        continue;
-      }
-    } else if (char === '/' && inRegex) {
-      inRegex = false;
-      output += char;
-      i++;
-      continue;
-    }
-
-    if (inRegex) {
-      output += char;
-      i++;
-      continue;
-    }
-
-    // Handle whitespace outside strings
-    if (/\s/.test(char)) {
-      let wsRun = '';
-      while (i < len && /\s/.test(text[i])) {
-        wsRun += text[i];
-        i++;
-      }
-      
-      const hasNewline = wsRun.includes('\n') || wsRun.includes('\r');
-      const match = output.match(/(?:^|[^a-zA-Z0-9_$])([a-zA-Z0-9_$]+)$/);
-      const lastWord = match ? match[1] : '';
-      
-      if (hasNewline && (lastWord === 'return' || lastWord === 'throw' || lastWord === 'break' || lastWord === 'continue')) {
-        output += ';';
-      } else {
-        // Collapse multiple whitespace/newlines into a single space or omit if adjacent to operators
-        const lastChar = output.slice(-1);
-        if (lastChar && !/[()\[\]{},;:+\-*\/=<>!&|%?]/.test(lastChar)) {
-          if (!output.endsWith(' ')) {
-            output += ' ';
-          }
-        }
-      }
-      continue;
-    }
-
-    // If adding an operator, strip trailing space if safe
-    if (/[()\[\]{},;:+\-*\/=<>!&|%?]/.test(char)) {
-      if (output.endsWith(' ')) {
-        const charBeforeSpace = output.slice(-2, -1);
-        // Avoid merging ++ or -- or keyword ambiguities
-        if (!(/[+\-]/.test(char) && /[+\-]/.test(charBeforeSpace))) {
-          output = output.slice(0, -1);
-        }
-      }
-    }
-
-    output += char;
-    i++;
-  }
-
-  // Final cleanup of extra empty lines or spaces
-  return output.trim();
-}
+import { minifyCode } from './bundler-minify.js';
 
 /**
- * Bundles the dependency graph into a deterministic, single-file IIFE bundle
- * and collects rich build metrics for the ZeroPack dashboard.
+ * Builds a deterministic IIFE bundle from a resolved module graph.
+ *
+ * Output format:
+ * ```js
+ * (function(modules) { ... })({
+ *   0: [function(require, module, exports) { ... }, { './dep': 1 }],
+ *   ...
+ * });
+ * ```
+ *
+ * Determinism guarantee: modules are sorted lexicographically by
+ * `relativePath` before being serialised, ensuring byte-identical output
+ * across separate build runs on the same source tree.
+ *
+ * @param {object[]} graph     Ordered module nodes from `graph.js` or `parser.js`.
+ * @param {object}   [options]
+ * @param {boolean}  [options.minify=false] Strip comments and whitespace.
+ * @param {boolean}  [options.hmr=false]    Append the HMR WebSocket client stub.
+ * @returns {{
+ *   code:        string,
+ *   size:        number,
+ *   hash:        string,
+ *   modulesCount: number,
+ *   stats:       object
+ * }}
  */
 export function generateBundle(graph, options = {}) {
   const startTime = Date.now();
@@ -323,7 +214,15 @@ export function generateBundle(graph, options = {}) {
 }
 
 /**
- * Bundles the graph and writes it directly to disk.
+ * Convenience wrapper: runs `generateBundle` then writes the result to disk.
+ *
+ * Creates parent directories with `fs.mkdirSync({ recursive: true })` if they
+ * do not exist (replaces the need for `mkdirp` / `make-dir`).
+ *
+ * @param {object[]} graph    Module graph from `graph.js` or `parser.js`.
+ * @param {string}   outPath  Output file path (absolute or relative to cwd).
+ * @param {object}   [options] Passed through to `generateBundle`.
+ * @returns {object} `generateBundle` result plus `outputPath`.
  */
 export function bundleToFile(graph, outPath, options = {}) {
   const resolvedOut = path.isAbsolute(outPath) ? outPath : path.resolve(process.cwd(), outPath);
