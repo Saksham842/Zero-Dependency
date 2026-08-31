@@ -4,7 +4,8 @@ import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
-import { startDevServer, resolveStaticFilePath, isPathInsideRoot } from '../src/server.js';
+import { startDevServer } from '../src/server.js';
+import { resolveStaticFilePath, isPathInsideRoot } from '../src/server-static.js';
 
 function makeStaticFixture() {
   const parentDir = fs.mkdtempSync(path.join(os.tmpdir(), 'zeropack-static-parent-'));
