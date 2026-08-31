@@ -16,98 +16,100 @@ import { parseArgs } from 'node:util';
 import { StringDecoder } from 'node:string_decoder';
 
 // ==========================================
-// Module: cli.js
+// Module: cli-logger.js
 // ==========================================
-// -----------------------------------------------------------------------------
-// 1. Terminal Logger (Zero-dependency ANSI Color Utility)
-// -----------------------------------------------------------------------------
+/**
+ * @module cli-logger
+ * @description Zero-dependency ANSI terminal logger for ZeroPack.
+ */
+
+/**
+ * Lightweight ANSI styling helpers.
+ * @namespace colors
+ */
 export const colors = {
-  reset: (text) => `\x1b[0m${text}\x1b[0m`,
-  bold: (text) => `\x1b[1m${text}\x1b[22m`,
-  dim: (text) => `\x1b[2m${text}\x1b[22m`,
-  italic: (text) => `\x1b[3m${text}\x1b[23m`,
-  underline: (text) => `\x1b[4m${text}\x1b[24m`,
-  
-  // Foreground Colors
-  black: (text) => `\x1b[30m${text}\x1b[39m`,
-  red: (text) => `\x1b[31m${text}\x1b[39m`,
-  green: (text) => `\x1b[32m${text}\x1b[39m`,
-  yellow: (text) => `\x1b[33m${text}\x1b[39m`,
-  blue: (text) => `\x1b[34m${text}\x1b[39m`,
-  magenta: (text) => `\x1b[35m${text}\x1b[39m`,
-  cyan: (text) => `\x1b[36m${text}\x1b[39m`,
-  white: (text) => `\x1b[37m${text}\x1b[39m`,
-  gray: (text) => `\x1b[90m${text}\x1b[39m`,
-  
-  // Bright colors
-  brightRed: (text) => `\x1b[91m${text}\x1b[39m`,
-  brightGreen: (text) => `\x1b[92m${text}\x1b[39m`,
+  reset:        (text) => `\x1b[0m${text}\x1b[0m`,
+  bold:         (text) => `\x1b[1m${text}\x1b[22m`,
+  dim:          (text) => `\x1b[2m${text}\x1b[22m`,
+  italic:       (text) => `\x1b[3m${text}\x1b[23m`,
+  underline:    (text) => `\x1b[4m${text}\x1b[24m`,
+  black:        (text) => `\x1b[30m${text}\x1b[39m`,
+  red:          (text) => `\x1b[31m${text}\x1b[39m`,
+  green:        (text) => `\x1b[32m${text}\x1b[39m`,
+  yellow:       (text) => `\x1b[33m${text}\x1b[39m`,
+  blue:         (text) => `\x1b[34m${text}\x1b[39m`,
+  magenta:      (text) => `\x1b[35m${text}\x1b[39m`,
+  cyan:         (text) => `\x1b[36m${text}\x1b[39m`,
+  white:        (text) => `\x1b[37m${text}\x1b[39m`,
+  gray:         (text) => `\x1b[90m${text}\x1b[39m`,
+  brightRed:    (text) => `\x1b[91m${text}\x1b[39m`,
+  brightGreen:  (text) => `\x1b[92m${text}\x1b[39m`,
   brightYellow: (text) => `\x1b[93m${text}\x1b[39m`,
-  brightCyan: (text) => `\x1b[96m${text}\x1b[39m`,
-  
-  // Background Colors
-  bgCyan: (text) => `\x1b[46m\x1b[30m${text}\x1b[39m\x1b[49m`,
-  bgGreen: (text) => `\x1b[42m\x1b[30m${text}\x1b[39m\x1b[49m`,
-  bgYellow: (text) => `\x1b[43m\x1b[30m${text}\x1b[39m\x1b[49m`,
-  bgRed: (text) => `\x1b[41m\x1b[37m${text}\x1b[39m\x1b[49m`
+  brightCyan:   (text) => `\x1b[96m${text}\x1b[39m`,
+  bgCyan:       (text) => `\x1b[46m\x1b[30m${text}\x1b[39m\x1b[49m`,
+  bgGreen:      (text) => `\x1b[42m\x1b[30m${text}\x1b[39m\x1b[49m`,
+  bgYellow:     (text) => `\x1b[43m\x1b[30m${text}\x1b[39m\x1b[49m`,
+  bgRed:        (text) => `\x1b[41m\x1b[37m${text}\x1b[39m\x1b[49m`
 };
 
+/**
+ * Structured logger with semantic severity levels.
+ * @namespace logger
+ */
 export const logger = {
-  info: (msg) => console.log(`${colors.cyan(colors.bold('[INFO]'))} ${msg}`),
+  info:    (msg) => console.log(`${colors.cyan(colors.bold('[INFO]'))} ${msg}`),
   success: (msg) => console.log(`${colors.green(colors.bold('[SUCCESS]'))} ${msg}`),
-  warn: (msg) => console.warn(`${colors.yellow(colors.bold('[WARN]'))} ${msg}`),
-  error: (msg) => console.error(`${colors.red(colors.bold('[ERROR]'))} ${msg}`),
-  build: (msg) => console.log(`${colors.magenta(colors.bold('[BUILD]'))} ${msg}`),
-  server: (msg) => console.log(`${colors.blue(colors.bold('[SERVER]'))} ${msg}`),
-  hmr: (msg) => console.log(`${colors.brightCyan(colors.bold('[HMR]'))} ${msg}`),
-  raw: (msg) => console.log(msg)
+  warn:    (msg) => console.warn(`${colors.yellow(colors.bold('[WARN]'))} ${msg}`),
+  error:   (msg) => console.error(`${colors.red(colors.bold('[ERROR]'))} ${msg}`),
+  build:   (msg) => console.log(`${colors.magenta(colors.bold('[BUILD]'))} ${msg}`),
+  server:  (msg) => console.log(`${colors.blue(colors.bold('[SERVER]'))} ${msg}`),
+  hmr:     (msg) => console.log(`${colors.brightCyan(colors.bold('[HMR]'))} ${msg}`),
+  raw:     (msg) => console.log(msg)
 };
 
-// -----------------------------------------------------------------------------
-// 2. Native Environment Loader (Zero-dependency .env reader)
-// -----------------------------------------------------------------------------
+// ==========================================
+// Module: cli-env.js
+// ==========================================
+/**
+ * @module cli-env
+ * @description Native `.env` reader for ZeroPack.
+ */
+
+
 export function loadEnv(envPath = '.env', baseDir = process.cwd()) {
   const resolvedPath = path.isAbsolute(envPath) ? envPath : path.resolve(baseDir, envPath);
-  
+
   if (!fs.existsSync(resolvedPath)) {
     return { loaded: false, count: 0, path: resolvedPath };
   }
 
   try {
     const content = fs.readFileSync(resolvedPath, 'utf8');
-    const lines = content.split(/\r?\n/);
+    const lines   = content.split(/\r?\n/);
     let count = 0;
 
     for (const rawLine of lines) {
       const line = rawLine.trim();
-      // Skip empty lines and comment lines
       if (!line || line.startsWith('#')) continue;
 
-      // Handle 'export KEY=VALUE' or 'KEY=VALUE'
       const sanitizedLine = line.startsWith('export ') ? line.slice(7).trim() : line;
       const eqIdx = sanitizedLine.indexOf('=');
       if (eqIdx === -1) continue;
 
       const key = sanitizedLine.slice(0, eqIdx).trim();
-      let value = sanitizedLine.slice(eqIdx + 1).trim();
+      let value  = sanitizedLine.slice(eqIdx + 1).trim();
 
       if (!key) continue;
 
-      // Unquote value if wrapped with single or double quotes
-      if (
-        (value.startsWith('"') && value.endsWith('"')) ||
-        (value.startsWith("'") && value.endsWith("'"))
-      ) {
+      if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
         value = value.slice(1, -1);
       }
 
-      // Handle inline comment after space and #
       const commentIdx = value.indexOf(' #');
       if (commentIdx !== -1) {
         value = value.slice(0, commentIdx).trim();
       }
 
-      // Do not overwrite existing process.env variables unless needed
       if (process.env[key] === undefined) {
         process.env[key] = value;
         count++;
@@ -121,9 +123,15 @@ export function loadEnv(envPath = '.env', baseDir = process.cwd()) {
   }
 }
 
-// -----------------------------------------------------------------------------
-// 3. Terminal Banner & Help Menu
-// -----------------------------------------------------------------------------
+// ==========================================
+// Module: cli-help.js
+// ==========================================
+/**
+ * @module cli-help
+ * @description Argument parsing and help text for ZeroPack CLI.
+ */
+
+
 export function printBanner() {
   const banner = `
 ${colors.cyan(colors.bold('========================================================================'))}
@@ -172,48 +180,17 @@ ${colors.bold('EXAMPLES:')}
 `);
 }
 
-// -----------------------------------------------------------------------------
-// 4. Arguments Parser using `node:util.parseArgs`
-// -----------------------------------------------------------------------------
 export function parseCliArgs(args = process.argv.slice(2)) {
   const options = {
-    entry: {
-      type: 'string',
-      default: 'src/index.js'
-    },
-    out: {
-      type: 'string',
-      default: 'dist/bundle.js'
-    },
-    serve: {
-      type: 'boolean',
-      default: false
-    },
-    port: {
-      type: 'string',
-      default: '3000'
-    },
-    minify: {
-      type: 'boolean',
-      default: false
-    },
-    env: {
-      type: 'string',
-      default: '.env'
-    },
-    watch: {
-      type: 'boolean',
-      default: false
-    },
-    host: {
-      type: 'string',
-      default: '127.0.0.1'
-    },
-    help: {
-      type: 'boolean',
-      short: 'h',
-      default: false
-    }
+    entry:  { type: 'string',  default: 'src/index.js' },
+    out:    { type: 'string',  default: 'dist/bundle.js' },
+    serve:  { type: 'boolean', default: false },
+    port:   { type: 'string',  default: '3000' },
+    minify: { type: 'boolean', default: false },
+    env:    { type: 'string',  default: '.env' },
+    watch:  { type: 'boolean', default: false },
+    host:   { type: 'string',  default: '127.0.0.1' },
+    help:   { type: 'boolean', short: 'h', default: false }
   };
 
   try {
@@ -224,7 +201,6 @@ export function parseCliArgs(args = process.argv.slice(2)) {
       strict: false
     });
 
-    // Support positional entry argument if provided (e.g. `zeropack src/main.js`)
     let entry = values.entry;
     if (positionals.length > 0 && values.entry === 'src/index.js') {
       entry = positionals[0];
@@ -232,14 +208,14 @@ export function parseCliArgs(args = process.argv.slice(2)) {
 
     return {
       entry,
-      out: values.out,
-      serve: Boolean(values.serve),
-      watch: Boolean(values.watch),
-      port: parseInt(values.port, 10) || 3000,
-      host: values.host || '127.0.0.1',
-      minify: Boolean(values.minify),
-      env: values.env,
-      help: Boolean(values.help),
+      out:         values.out,
+      serve:       Boolean(values.serve),
+      watch:       Boolean(values.watch),
+      port:        parseInt(values.port, 10) || 3000,
+      host:        values.host || '127.0.0.1',
+      minify:      Boolean(values.minify),
+      env:         values.env,
+      help:        Boolean(values.help),
       positionals
     };
   } catch (err) {
@@ -249,9 +225,53 @@ export function parseCliArgs(args = process.argv.slice(2)) {
   }
 }
 
-// -----------------------------------------------------------------------------
-// 5. CLI Execution Lifecycle
-// -----------------------------------------------------------------------------
+// ==========================================
+// Module: cli.js
+// ==========================================
+/**
+ * @module cli
+ * @description ZeroPack CLI entry-point.
+ *
+ * Responsibilities:
+ *  1. Terminal logger — ANSI-coloured, zero external deps (`colors`, `logger`).
+ *  2. Native `.env` reader — pure `node:fs` line-stream parser.
+ *  3. ASCII banner + help menu generator.
+ *  4. CLI argument parser via `node:util.parseArgs`.
+ *  5. Build / serve / watch lifecycle orchestrator.
+ *
+ * Replaces (npm ecosystem):
+ *  - `chalk` / `picocolors`  → raw ANSI escape codes
+ *  - `dotenv`                → `node:fs` + line parser
+ *  - `commander` / `yargs`   → `node:util.parseArgs`
+ *
+ * @requires node:fs
+ * @requires node:path
+ * @requires node:process
+ * @requires node:util
+ */
+
+
+
+
+export { colors, logger } from './cli-logger.js';
+export { loadEnv } from './cli-env.js';
+export { printBanner, printHelp, parseCliArgs } from './cli-help.js';
+
+/**
+ * Main CLI entry-point. Orchestrates the full build/serve/watch lifecycle:
+ *
+ *  1. Parse CLI arguments.
+ *  2. Load `.env` file (if present).
+ *  3. Import bundler modules lazily (avoids circular deps in standalone mode).
+ *  4. Build the initial bundle.
+ *  5. Start the dev server (`--serve`) or file watcher (`--watch`).
+ *
+ * All import/module errors emit a structured `BuildError` report to stderr
+ * before exiting with code 1.
+ *
+ * @param {string[]} [args=process.argv.slice(2)] Raw CLI argument vector.
+ * @returns {Promise<void>}
+ */
 export async function runCli(args = process.argv.slice(2)) {
   const config = parseCliArgs(args);
 
@@ -262,14 +282,12 @@ export async function runCli(args = process.argv.slice(2)) {
 
   printBanner();
 
-  // Load .env automatically
   const envResult = loadEnv(config.env);
   if (envResult.loaded) {
     logger.info(`Loaded ${colors.bold(envResult.count)} environment variables from ${colors.dim(envResult.path)}`);
   }
 
-  // Dynamic import of bundler/server so CLI file can be run independently or concatenated
-  const { build: buildDependencyGraph, rebuild: incrementalRebuild } = await import('./graph.js');
+  const { build: buildDependencyGraph } = await import('./graph.js');
   
 
   const startTime = performance.now();
@@ -278,9 +296,9 @@ export async function runCli(args = process.argv.slice(2)) {
   logger.build(`Minification: ${config.minify ? colors.green('ENABLED') : colors.gray('DISABLED')}`);
 
   try {
-    const graph = buildDependencyGraph(config.entry);
+    const graph  = buildDependencyGraph(config.entry);
     const result = bundleToFile(graph, config.out, {
-      minify: config.minify,
+      minify:    config.minify,
       entryPath: config.entry
     });
 
@@ -291,23 +309,25 @@ export async function runCli(args = process.argv.slice(2)) {
     if (config.serve) {
       
       await startDevServer({
-        port: config.port,
-        host: config.host,
-        entry: config.entry,
-        out: config.out,
-        minify: config.minify,
+        port:    config.port,
+        host:    config.host,
+        entry:   config.entry,
+        out:     config.out,
+        minify:  config.minify,
         rootDir: process.cwd(),
-        stats: result.stats
+        stats:   result.stats
       });
     } else if (config.watch) {
-      // --watch mode: rebuild on file change without starting the HTTP server
-      const fs = await import('node:fs');
+      const fsModule = await import('node:fs');
       const watchDir = path.resolve(process.cwd(), path.dirname(config.entry));
       logger.info(`Watching ${colors.cyan(watchDir)} for changes...`);
+
       let debounceTimer = null;
-      const watcher = fs.default.watch(watchDir, { recursive: true }, (_event, filename) => {
+
+      const watcher = fsModule.default.watch(watchDir, { recursive: true }, (_event, filename) => {
         if (!filename || filename.endsWith('bundle.js')) return;
         if (debounceTimer) clearTimeout(debounceTimer);
+
         debounceTimer = setTimeout(async () => {
           debounceTimer = null;
           logger.hmr(`File changed: ${colors.cyan(filename)} — rebuilding...`);
@@ -321,8 +341,8 @@ export async function runCli(args = process.argv.slice(2)) {
           }
         }, 100);
       });
+
       watcher.on('error', (err) => logger.warn(`Watcher error: ${err.message}`));
-      // Keep process alive
       process.on('SIGINT', () => { watcher.close(); process.exit(0); });
     }
   } catch (error) {
@@ -331,12 +351,12 @@ export async function runCli(args = process.argv.slice(2)) {
       logger.error(`${colors.bgRed(` ${error.category} Failed `)}`);
       console.log('');
       console.log(`  ${colors.bold('What:')}   ${colors.white(error.message)}`);
-      
+
       let loc = error.file;
-      if (error.line) loc += `:${error.line}`;
+      if (error.line)   loc += `:${error.line}`;
       if (error.column) loc += `:${error.column}`;
       console.log(`  ${colors.bold('Where:')}  ${colors.cyan(loc)}`);
-      
+
       if (error.suggestion) {
         console.log(`  ${colors.bold('Action:')} ${colors.yellow(error.suggestion)}`);
       }
@@ -344,20 +364,38 @@ export async function runCli(args = process.argv.slice(2)) {
     } else {
       logger.error(`Build failed: ${error.message}`);
     }
-    
+
     if (process.env.DEBUG) {
       console.error(error.stack);
     }
-    
-    // If the initial build fails, we must exit with 1 regardless of serve mode,
-    // because the dev server hasn't been started yet.
     process.exit(1);
   }
 }
 
+const isMain =
+  process.argv[1] &&
+  (process.argv[1].endsWith('cli.js') || process.argv[1].endsWith('zeropack.js'));
+
+if (isMain) {
+  runCli().catch((err) => {
+    logger.error(`Fatal error: ${err.message}`);
+    process.exit(1);
+  });
+}
+
 // ==========================================
-// Module: parser.js
+// Module: parser-errors.js
 // ==========================================
+/**
+ * @module parser-errors
+ * @description BuildError class and line/column utilities for ZeroPack.
+ */
+
+
+/**
+ * Structured build-time diagnostic error.
+ * Categories: `'Build'` | `'Resolution'` | `'Syntax'` | `'FileSystem'`
+ */
 export class BuildError extends Error {
   constructor({ message, file, line, column, suggestion, category }) {
     super(message);
@@ -370,6 +408,12 @@ export class BuildError extends Error {
   }
 }
 
+/**
+ * Maps a character offset into source code to a 1-indexed line/column pair.
+ * @param {string} code   Full source text.
+ * @param {number} index  Character offset.
+ * @returns {{ line: number, column: number }}
+ */
 export function getLineColumn(code, index) {
   if (index < 0) index = 0;
   if (index > code.length) index = code.length;
@@ -382,63 +426,10 @@ export function getLineColumn(code, index) {
 }
 
 /**
- * Resolves a module specifier relative to the importing file.
- * Checks for extensions (.js, .mjs, .cjs, .ts, .json) and directory indexes.
+ * Throws a BuildError when filePath has an unsupported extension (.ts, .tsx, .jsx).
+ * @param {string} filePath
  */
-export function resolveModulePath(fromFile, specifier, rootDir = process.cwd()) {
-  let candidate = '';
-
-  if (specifier.startsWith('.') || specifier.startsWith('/')) {
-    candidate = path.resolve(path.dirname(fromFile), specifier);
-  } else {
-    // Treat bare specifier as relative to root or node_modules-like structure
-    candidate = path.resolve(rootDir, specifier);
-  }
-
-  // 1. Exact file match
-  if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
-    checkUnsupportedExtension(candidate);
-    return candidate;
-  }
-
-  // 2. Try file extensions
-  const extensions = ['.js', '.mjs', '.cjs', '.ts', '.jsx', '.tsx', '.json', '.css'];
-  for (const ext of extensions) {
-    const withExt = candidate + ext;
-    if (fs.existsSync(withExt) && fs.statSync(withExt).isFile()) {
-      return withExt;
-    }
-  }
-
-  // 3. Try directory index file
-  if (fs.existsSync(candidate) && fs.statSync(candidate).isDirectory()) {
-    for (const ext of ['.js', '.mjs', '.cjs', '.ts', '.jsx', '.tsx', '.json', '.css']) {
-      const indexFile = path.join(candidate, `index${ext}`);
-      if (fs.existsSync(indexFile) && fs.statSync(indexFile).isFile()) {
-        checkUnsupportedExtension(indexFile);
-        return indexFile;
-      }
-    }
-  }
-  
-  if (!specifier.startsWith('.') && !specifier.startsWith('/')) {
-    throw new BuildError({
-      message: `Unable to resolve bare module specifier '${specifier}'`,
-      file: fromFile,
-      suggestion: 'ZeroPack does not currently support full npm package resolution from node_modules. Please use relative paths for local files.',
-      category: 'Resolution'
-    });
-  }
-
-  throw new BuildError({
-    message: `Cannot resolve module '${specifier}' requested by '${path.relative(rootDir, fromFile)}'`,
-    file: fromFile,
-    suggestion: 'Check that the file exists and that the import path is correct.',
-    category: 'Resolution'
-  });
-}
-
-function checkUnsupportedExtension(filePath) {
+export function checkUnsupportedExtension(filePath) {
   const ext = path.extname(filePath).toLowerCase();
   if (ext === '.ts' || ext === '.tsx' || ext === '.jsx') {
     throw new BuildError({
@@ -450,9 +441,27 @@ function checkUnsupportedExtension(filePath) {
   }
 }
 
+// ==========================================
+// Module: parser-css.js
+// ==========================================
 /**
- * Minifies a CSS string: strips comments and collapses whitespace.
- * Pure stdlib — no external packages.
+ * @module parser-css
+ * @description CSS minifier for ZeroPack. Zero npm dependencies.
+ *
+ * Replaces: postcss, clean-css, cssnano
+ * Standard library: pure string operations
+ */
+
+/**
+ * Minifies a CSS string using a character-by-character state machine.
+ *
+ * Operations performed:
+ *  - Strips block comments (honoured inside string literals).
+ *  - Collapses runs of whitespace/newlines to a single space.
+ *  - Removes spaces around structural tokens: { } : ; , > ~ +
+ *
+ * @param {string} css  Raw CSS source string.
+ * @returns {string}    Minified CSS string.
  */
 export function minifyCss(css) {
   let out = '';
@@ -520,15 +529,462 @@ export function minifyCss(css) {
     i++;
   }
 
-  // Collapse whitespace sequences (newlines, tabs, multiple spaces) to single space
+  // Collapse whitespace sequences to single space
   out = out.replace(/\s+/g, ' ');
-  // Remove spaces around structural tokens: { } : ; ,
+  // Remove spaces around structural tokens
   out = out.replace(/\s*([{}:;,>~+])\s*/g, '$1');
   return out.trim();
 }
 
 /**
- * Extracts import/require specifiers and transforms ESM syntax into runtime CJS format.
+ * Wraps minified CSS in a browser style-injection JS module.
+ * @param {string} rawCss  Raw CSS source.
+ * @param {string} filePath  Absolute path (used as data-zeropack attribute).
+ * @returns {{ code: string, dependencies: string[] }}
+ */
+export function transformCssModule(rawCss, filePath) {
+  const minified = minifyCss(rawCss);
+  // Escape backticks and backslashes so the CSS is safe inside a template literal
+  const escaped = minified.replace(/\\/g, '\\\\').replace(/`/g, '\\`');
+  const code = [
+    `const __css = \`${escaped}\`;`,
+    `if (typeof document !== 'undefined') {`,
+    `  const __style = document.createElement('style');`,
+    `  __style.setAttribute('data-zeropack', ${JSON.stringify(filePath)});`,
+    `  __style.textContent = __css;`,
+    `  document.head.appendChild(__style);`,
+    `}`,
+    `module.exports = __css;`
+  ].join('\n');
+  return { code, dependencies: [] };
+}
+
+// ==========================================
+// Module: parser-resolve.js
+// ==========================================
+/**
+ * @module parser-resolve
+ * @description Module path resolution for ZeroPack. Zero npm dependencies.
+ *
+ * Replaces: node-resolve, enhanced-resolve
+ * Standard library: node:fs, node:path
+ */
+
+
+const RESOLVE_EXTENSIONS = ['.js', '.mjs', '.cjs', '.ts', '.jsx', '.tsx', '.json', '.css'];
+
+/**
+ * Resolves a module specifier to an absolute file path.
+ *
+ * Resolution order:
+ *  1. Exact file match.
+ *  2. Append known extensions: .js, .mjs, .cjs, .ts, .jsx, .tsx, .json, .css
+ *  3. Directory index file with the same extension candidates.
+ *
+ * Bare specifiers are rejected — ZeroPack does not resolve npm packages.
+ *
+ * @param {string} fromFile   Absolute path of the importing file.
+ * @param {string} specifier  Raw import string (e.g. `'./utils'`).
+ * @param {string} [rootDir=process.cwd()] Project root used in error messages.
+ * @returns {string} Resolved absolute file path.
+ * @throws {BuildError}
+ */
+export function resolveModulePath(fromFile, specifier, rootDir = process.cwd()) {
+  let candidate = '';
+
+  if (specifier.startsWith('.') || specifier.startsWith('/')) {
+    candidate = path.resolve(path.dirname(fromFile), specifier);
+  } else {
+    candidate = path.resolve(rootDir, specifier);
+  }
+
+  // 1. Exact file match
+  if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
+    checkUnsupportedExtension(candidate);
+    return candidate;
+  }
+
+  // 2. Try file extensions
+  for (const ext of RESOLVE_EXTENSIONS) {
+    const withExt = candidate + ext;
+    if (fs.existsSync(withExt) && fs.statSync(withExt).isFile()) {
+      return withExt;
+    }
+  }
+
+  // 3. Try directory index file
+  if (fs.existsSync(candidate) && fs.statSync(candidate).isDirectory()) {
+    for (const ext of RESOLVE_EXTENSIONS) {
+      const indexFile = path.join(candidate, `index${ext}`);
+      if (fs.existsSync(indexFile) && fs.statSync(indexFile).isFile()) {
+        checkUnsupportedExtension(indexFile);
+        return indexFile;
+      }
+    }
+  }
+
+  if (!specifier.startsWith('.') && !specifier.startsWith('/')) {
+    throw new BuildError({
+      message: `Unable to resolve bare module specifier '${specifier}'`,
+      file: fromFile,
+      suggestion: 'ZeroPack does not currently support full npm package resolution from node_modules. Please use relative paths for local files.',
+      category: 'Resolution'
+    });
+  }
+
+  throw new BuildError({
+    message: `Cannot resolve module '${specifier}' requested by '${path.relative(rootDir, fromFile)}'`,
+    file: fromFile,
+    suggestion: 'Check that the file exists and that the import path is correct.',
+    category: 'Resolution'
+  });
+}
+
+// ==========================================
+// Module: parser-utils.js
+// ==========================================
+/**
+ * @module parser-utils
+ * @description Shared string scanning utilities for the ZeroPack parser.
+ */
+
+export function skipWhitespaceAndComments(rawCode, len, index) {
+  while (index < len) {
+    const char = rawCode[index];
+    const nextChar = rawCode[index + 1];
+    if (/\s/.test(char)) { index++; continue; }
+    if (char === '/' && nextChar === '/') {
+      index += 2;
+      while (index < len && rawCode[index] !== '\n') index++;
+      continue;
+    }
+    if (char === '/' && nextChar === '*') {
+      index += 2;
+      while (index < len && !(rawCode[index] === '*' && rawCode[index + 1] === '/')) index++;
+      index += 2;
+      continue;
+    }
+    break;
+  }
+  return index;
+}
+
+export function readWord(rawCode, len, index) {
+  let word = '';
+  while (index < len && /[a-zA-Z_$0-9]/.test(rawCode[index])) {
+    word += rawCode[index++];
+  }
+  return { word, index };
+}
+
+export function readString(rawCode, len, index) {
+  const quote = rawCode[index++];
+  let str = '';
+  let esc = false;
+  while (index < len) {
+    const c = rawCode[index++];
+    if (esc) { str += c; esc = false; continue; }
+    if (c === '\\') { esc = true; continue; }
+    if (c === quote) break;
+    str += c;
+  }
+  return { str, index, quote };
+}
+
+// ==========================================
+// Module: parser-import.js
+// ==========================================
+/**
+ * @module parser-
+
+
+export function parseImport(rawCode, len, filePath, startI, dependencies, importTempVars) {
+  const skip = (i) => skipWhitespaceAndComments(rawCode, len, i);
+  const rWord = (i) => readWord(rawCode, len, i);
+  const rStr = (i) => readString(rawCode, len, i);
+
+  let idx = startI + 6;
+  idx = skip(idx);
+
+  if (rawCode[idx] === '(') {
+    idx++;
+    idx = skip(idx);
+    if (rawCode[idx] === "'" || rawCode[idx] === '"' || rawCode[idx] === '`') {
+      const { str: specifier, index: afterString } = rStr(idx);
+      idx = skip(afterString);
+      if (rawCode[idx] === ')') {
+        idx++;
+        dependencies.add(specifier);
+        return { replacement: `Promise.resolve(require('${specifier}'))`, newIndex: idx };
+      }
+    }
+    const { line, column } = getLineColumn(rawCode, idx);
+    throw new BuildError({ message: `Unsupported dynamic import expression`, file: filePath, line, column,
+      suggestion: 'ZeroPack only supports static string literals in dynamic imports, e.g., import("./file.js").', category: 'Syntax' });
+  }
+
+  let clause = '';
+  let specifier = '';
+
+  if (rawCode[idx] === "'" || rawCode[idx] === '"') {
+    const { str, index: afterStr } = rStr(idx);
+    specifier = str;
+    idx = skip(afterStr);
+    const { word } = rWord(idx);
+    if (word === 'with' || word === 'assert') {
+      idx += word.length;
+      idx = skip(idx);
+      if (rawCode[idx] === '{') { while (idx < len && rawCode[idx] !== '}') idx++; if (rawCode[idx] === '}') idx++; }
+    }
+    if (rawCode[idx] === ';') idx++;
+    dependencies.add(specifier);
+    return { replacement: `require('${specifier}')` + (rawCode[idx-1] === ';' ? ';' : ''), newIndex: idx };
+  }
+
+  let tokens = [];
+  while (idx < len) {
+    idx = skip(idx);
+    const { word } = rWord(idx);
+    if (word === 'from') { idx += 4; break; }
+    if (word) { tokens.push({ type: 'word', value: word }); idx += word.length; }
+    else { const c = rawCode[idx]; tokens.push({ type: 'punct', value: c }); idx++; }
+  }
+
+  idx = skip(idx);
+  if (rawCode[idx] === "'" || rawCode[idx] === '"') {
+    const { str, index: afterStr } = rStr(idx);
+    specifier = str;
+    idx = skip(afterStr);
+    const { word } = rWord(idx);
+    if (word === 'with' || word === 'assert') {
+      idx += word.length;
+      idx = skip(idx);
+      if (rawCode[idx] === '{') { while (idx < len && rawCode[idx] !== '}') idx++; if (rawCode[idx] === '}') idx++; }
+    }
+    if (rawCode[idx] === ';') idx++;
+  } else {
+    const { line, column } = getLineColumn(rawCode, idx);
+    throw new BuildError({ message: `Expected string literal after 'from'`, file: filePath, line, column,
+      suggestion: 'Ensure your import statement has a valid source string (e.g. from "module").', category: 'Syntax' });
+  }
+
+  dependencies.add(specifier);
+  let defaultName = null, namespaceName = null, namedImports = [];
+  let t = 0;
+  if (tokens[t] && tokens[t].type === 'word' && tokens[t].value !== 'as') { defaultName = tokens[t].value; t++; if (tokens[t] && tokens[t].value === ',') t++; }
+  if (tokens[t] && tokens[t].value === '*') {
+    t++;
+    if (tokens[t] && tokens[t].value === 'as') { t++; namespaceName = tokens[t].value; t++; }
+  } else if (tokens[t] && tokens[t].value === '{') {
+    t++;
+    while (t < tokens.length && tokens[t].value !== '}') {
+      if (tokens[t].value === ',') { t++; continue; }
+      const orig = tokens[t].value; let alias = orig; t++;
+      if (tokens[t] && tokens[t].value === 'as') { t++; alias = tokens[t].value; t++; }
+      namedImports.push({ orig, alias });
+    }
+  }
+
+  let tempVar = importTempVars.get(specifier);
+  let isNew = false;
+  if (!tempVar) {
+    const h = crypto.createHash('sha256').update(specifier).digest('hex').slice(0, 8);
+    tempVar = `__mod_${h}`;
+    importTempVars.set(specifier, tempVar);
+    isNew = true;
+  }
+
+  let lines = [];
+  if (isNew) lines.push(`const ${tempVar} = require('${specifier}');`);
+  if (namespaceName) lines.push(`const ${namespaceName} = ${tempVar};`);
+  if (defaultName) lines.push(`const ${defaultName} = ${tempVar}.default !== undefined ? ${tempVar}.default : ${tempVar};`);
+  if (namedImports.length > 0) {
+    const renamed = namedImports.map(n => n.orig === n.alias ? n.orig : `${n.orig}: ${n.alias}`).join(', ');
+    lines.push(`const { ${renamed} } = ${tempVar};`);
+  }
+  return { replacement: lines.join('\n') + (rawCode[idx-1] === ';' ? '' : ''), newIndex: idx };
+}
+
+// ==========================================
+// Module: parser-export.js
+// ==========================================
+/**
+ * @module parser-export
+ * @description ESM export parser for ZeroPack.
+ */
+
+
+
+export function parseExport(rawCode, len, filePath, startI, dependencies) {
+  const skip = (i) => skipWhitespaceAndComments(rawCode, len, i);
+  const rWord = (i) => readWord(rawCode, len, i);
+  const rStr = (i) => readString(rawCode, len, i);
+
+  let idx = startI + 6;
+  idx = skip(idx);
+  let { word } = rWord(idx);
+
+  if (word === 'default') {
+    idx += 7;
+    idx = skip(idx);
+    let { word: nextWord } = rWord(idx);
+    if (nextWord === 'function' || nextWord === 'class') {
+      let peekIdx = skip(idx + nextWord.length);
+      let { word: name } = rWord(peekIdx);
+      if (name) {
+        if (nextWord === 'function') return { replacement: `module.exports.default = ${name};\nfunction ${name}`, newIndex: peekIdx + name.length };
+        else return { replacement: `const ${name} = module.exports.default = class ${name}`, newIndex: peekIdx + name.length };
+      }
+      return { replacement: `module.exports.default = `, newIndex: idx };
+    }
+    let exprEnd = idx, braceCount = 0, parenCount = 0;
+    let inSq = false, inDq = false, inTl = false, isEsc = false;
+    while (exprEnd < len) {
+      const c = rawCode[exprEnd], nextC = rawCode[exprEnd + 1];
+      if (isEsc) { isEsc = false; exprEnd++; continue; }
+      if (c === '\\') { isEsc = true; exprEnd++; continue; }
+      if (c === "'" && !inDq && !inTl) { inSq = !inSq; exprEnd++; continue; }
+      if (c === '"' && !inSq && !inTl) { inDq = !inDq; exprEnd++; continue; }
+      if (c === '`' && !inSq && !inDq) { inTl = !inTl; exprEnd++; continue; }
+      if (inSq || inDq || inTl) { exprEnd++; continue; }
+      if (c === '/' && nextC === '/') { exprEnd += 2; while (exprEnd < len && rawCode[exprEnd] !== '\n') exprEnd++; continue; }
+      if (c === '/' && nextC === '*') { exprEnd += 2; while (exprEnd < len && !(rawCode[exprEnd] === '*' && rawCode[exprEnd+1] === '/')) exprEnd++; exprEnd += 2; continue; }
+      if (c === '{') braceCount++;
+      else if (c === '}') braceCount--;
+      else if (c === '(') parenCount++;
+      else if (c === ')') parenCount--;
+      if (c === ';' && braceCount === 0 && parenCount === 0) { exprEnd++; break; }
+      if (c === '\n' && braceCount === 0 && parenCount === 0) { break; }
+      exprEnd++;
+    }
+    const expr = rawCode.slice(idx, rawCode[exprEnd - 1] === ';' ? exprEnd - 1 : exprEnd).trim();
+    return { replacement: `const __defaultExport = (${expr});\nmodule.exports.default = __defaultExport;\nif (typeof __defaultExport === 'object' && __defaultExport !== null) { Object.assign(module.exports, __defaultExport); }\n`, newIndex: exprEnd };
+  }
+
+  if (word === 'const' || word === 'let' || word === 'var') {
+    idx += word.length;
+    idx = skip(idx);
+    const firstChar = rawCode[idx];
+    if (firstChar === '{' || firstChar === '[') {
+      const { line, column } = getLineColumn(rawCode, idx);
+      throw new BuildError({ message: `Destructured export declarations (export ${word} ${firstChar}...${firstChar === '{' ? '}' : ']'} = ...) are not supported.`, file: filePath, line, column,
+        suggestion: `Declare the variable first, then export: ${word} ${firstChar}...${firstChar === '{' ? '}' : ']'} = ...; export { ... };`, category: 'Syntax' });
+    }
+    let curr = idx, depth = 0, inStr = false, strChar = '', isFindingName = true;
+    let replacementStr = `${word} `, chunkStart = idx;
+    while (curr < len) {
+      const c = rawCode[curr];
+      if (inStr) { if (c === '\\') curr++; else if (c === strChar) inStr = false; curr++; continue; }
+      if (c === '"' || c === "'" || c === '`') { inStr = true; strChar = c; curr++; continue; }
+      if (c === '{' || c === '[' || c === '(') depth++;
+      else if (c === '}' || c === ']' || c === ')') depth--;
+      if (depth === 0) {
+        if (isFindingName) {
+          const skipRes = skip(curr);
+          if (skipRes > curr) { curr = skipRes; continue; }
+          const wRes = rWord(curr);
+          if (wRes.word) {
+            const varName = wRes.word;
+            replacementStr += `${varName} = module.exports.${varName} `;
+            curr += varName.length; chunkStart = curr; isFindingName = false; continue;
+          }
+        } else {
+          if (c === ',') { replacementStr += rawCode.slice(chunkStart, curr) + ', '; curr++; chunkStart = curr; isFindingName = true; continue; }
+          if (c === ';' || c === '\n') { break; }
+        }
+      }
+      curr++;
+    }
+    replacementStr += rawCode.slice(chunkStart, curr);
+    if (rawCode[curr] === ';') { replacementStr += ';'; curr++; }
+    return { replacement: replacementStr, newIndex: curr };
+  }
+
+  if (word === 'function' || word === 'class') {
+    idx += word.length;
+    idx = skip(idx);
+    const { word: name } = rWord(idx);
+    if (word === 'function') return { replacement: `module.exports.${name} = ${name};\nfunction ${name}`, newIndex: idx + name.length };
+    else return { replacement: `const ${name} = module.exports.${name} = class ${name}`, newIndex: idx + name.length };
+  }
+
+  if (rawCode[idx] === '{') {
+    let tokens = [];
+    while (idx < len) {
+      idx = skip(idx);
+      const { word: tWord } = rWord(idx);
+      if (tWord) { tokens.push({ type: 'word', value: tWord }); idx += tWord.length; }
+      else { const c = rawCode[idx]; tokens.push({ type: 'punct', value: c }); idx++; if (c === '}') break; }
+    }
+    idx = skip(idx);
+    let { word: fromWord } = rWord(idx);
+    let reexports = [], t = 1;
+    while (t < tokens.length && tokens[t].value !== '}') {
+      if (tokens[t].value === ',') { t++; continue; }
+      const orig = tokens[t].value; let alias = orig; t++;
+      if (tokens[t] && tokens[t].value === 'as') { t++; alias = tokens[t].value; t++; }
+      reexports.push({ orig, alias });
+    }
+    if (fromWord === 'from') {
+      idx += 4; idx = skip(idx);
+      if (rawCode[idx] === "'" || rawCode[idx] === '"') {
+        const { str: specifier, index: afterStr } = rStr(idx);
+        idx = afterStr; idx = skip(idx);
+        const { word: attrWord } = rWord(idx);
+        if (attrWord === 'with' || attrWord === 'assert') { idx += attrWord.length; idx = skip(idx); if (rawCode[idx] === '{') { while (idx < len && rawCode[idx] !== '}') idx++; if (rawCode[idx] === '}') idx++; } }
+        if (rawCode[idx] === ';') idx++;
+        dependencies.add(specifier);
+        const lines = reexports.map(({ orig, alias }) => `module.exports.${alias} = require('${specifier}').${orig};`);
+        return { replacement: lines.join('\n') + (lines.length > 0 ? '\n' : ''), newIndex: idx };
+      }
+    } else {
+      if (rawCode[idx] === ';') idx++;
+      const lines = reexports.map(({ orig, alias }) => `module.exports.${alias} = ${orig};`);
+      return { replacement: lines.join('\n') + (lines.length > 0 ? '\n' : ''), newIndex: idx };
+    }
+  }
+
+  if (rawCode[idx] === '*') {
+    idx++; idx = skip(idx);
+    let { word: fromWord } = rWord(idx);
+    if (fromWord === 'from') {
+      idx += 4; idx = skip(idx);
+      if (rawCode[idx] === "'" || rawCode[idx] === '"') {
+        const { str: specifier, index: afterStr } = rStr(idx);
+        idx = afterStr; idx = skip(idx);
+        if (rawCode[idx] === ';') idx++;
+        dependencies.add(specifier);
+        return { replacement: `Object.assign(module.exports, require('${specifier}'));`, newIndex: idx };
+      }
+    }
+  }
+
+  const { line, column } = getLineColumn(rawCode, idx);
+  throw new BuildError({ message: `Unsupported export syntax`, file: filePath, line, column,
+    suggestion: 'ZeroPack supports export default, export const/let/var, export function/class, and export { ... }. Check your syntax.', category: 'Syntax' });
+}
+
+// ==========================================
+// Module: parser-transform.js
+// ==========================================
+/**
+ * @module parser-transform
+ * @description Single-pass ESM→CJS transformer for ZeroPack.
+ *
+ * Replaces: @babel/core, esbuild transform API
+ * Standard library: pure string scanning, node:crypto (sha256 temp vars)
+ */
+
+
+
+
+
+/**
+ * Single-pass ESM→CJS transformer.
+ *
+ * @param {string} rawCode   Full source text.
+ * @param {string} filePath  Absolute file path.
+ * @returns {{ code: string, dependencies: string[] }}
  */
 export function transformModuleCode(rawCode, filePath) {
   const dependencies = new Set();
@@ -536,678 +992,75 @@ export function transformModuleCode(rawCode, filePath) {
   const importTempVars = new Map();
 
   if (filePath.endsWith('.json')) {
-    return {
-      code: `module.exports = ${rawCode.trim() || '{}'};`,
-      dependencies: []
-    };
+    return { code: `module.exports = ${rawCode.trim() || '{}'};`, dependencies: [] };
   }
 
-  // CSS module: minify and generate a style-injection JS module
   if (filePath.endsWith('.css')) {
-    const minified = minifyCss(rawCode);
-    // Escape backticks and backslashes so the CSS is safe inside a template literal
-    const escaped = minified.replace(/\\/g, '\\\\').replace(/`/g, '\\`');
-    const code = [
-      `const __css = \`${escaped}\`;`,
-      `if (typeof document !== 'undefined') {`,
-      `  const __style = document.createElement('style');`,
-      `  __style.setAttribute('data-zeropack', ${JSON.stringify(filePath)});`,
-      `  __style.textContent = __css;`,
-      `  document.head.appendChild(__style);`,
-      `}`,
-      `module.exports = __css;`
-    ].join('\n');
-    return { code, dependencies: [] };
+    return transformCssModule(rawCode, filePath);
   }
 
   let i = 0;
   const len = rawCode.length;
-  let inSingleQuote = false;
-  let inDoubleQuote = false;
-  let inTemplateLiteral = false;
-  let inRegex = false;
-  let isEscaped = false;
-
-  function skipWhitespaceAndComments(index) {
-    while (index < len) {
-      const char = rawCode[index];
-      const nextChar = rawCode[index + 1];
-      if (/\s/.test(char)) { index++; continue; }
-      if (char === '/' && nextChar === '/') {
-        index += 2;
-        while (index < len && rawCode[index] !== '\n') index++;
-        continue;
-      }
-      if (char === '/' && nextChar === '*') {
-        index += 2;
-        while (index < len && !(rawCode[index] === '*' && rawCode[index + 1] === '/')) index++;
-        index += 2;
-        continue;
-      }
-      break;
-    }
-    return index;
-  }
-
-  function readWord(index) {
-    let word = '';
-    while (index < len && /[a-zA-Z_$0-9]/.test(rawCode[index])) {
-      word += rawCode[index++];
-    }
-    return { word, index };
-  }
-
-  function readString(index) {
-    const quote = rawCode[index++];
-    let str = '';
-    let esc = false;
-    while (index < len) {
-      const c = rawCode[index++];
-      if (esc) { str += c; esc = false; continue; }
-      if (c === '\\') { esc = true; continue; }
-      if (c === quote) break;
-      str += c;
-    }
-    return { str, index, quote };
-  }
-
-  function parseImport(startI) {
-    let idx = startI + 6;
-    idx = skipWhitespaceAndComments(idx);
-    
-    if (rawCode[idx] === '(') {
-      idx++;
-      idx = skipWhitespaceAndComments(idx);
-      if (rawCode[idx] === "'" || rawCode[idx] === '"' || rawCode[idx] === '`') {
-        const { str: specifier, index: afterString } = readString(idx);
-        idx = skipWhitespaceAndComments(afterString);
-        if (rawCode[idx] === ')') {
-          idx++;
-          dependencies.add(specifier);
-          return {
-            replacement: `Promise.resolve(require('${specifier}'))`,
-            newIndex: idx
-          };
-        }
-      }
-      const { line, column } = getLineColumn(rawCode, idx);
-      throw new BuildError({
-        message: `Unsupported dynamic import expression`,
-        file: filePath,
-        line,
-        column,
-        suggestion: 'ZeroPack only supports static string literals in dynamic imports, e.g., import("./file.js").',
-        category: 'Syntax'
-      });
-    }
-
-    let clause = '';
-    let specifier = '';
-    
-    if (rawCode[idx] === "'" || rawCode[idx] === '"') {
-      const { str, index: afterStr } = readString(idx);
-      specifier = str;
-      idx = skipWhitespaceAndComments(afterStr);
-      
-      const { word } = readWord(idx);
-      if (word === 'with' || word === 'assert') {
-         idx += word.length;
-         idx = skipWhitespaceAndComments(idx);
-         if (rawCode[idx] === '{') {
-            while (idx < len && rawCode[idx] !== '}') idx++;
-            if (rawCode[idx] === '}') idx++;
-         }
-      }
-      if (rawCode[idx] === ';') idx++;
-      
-      dependencies.add(specifier);
-      return {
-        replacement: `require('${specifier}')` + (rawCode[idx-1] === ';' ? ';' : ''),
-        newIndex: idx
-      };
-    }
-
-    let tokens = [];
-    while (idx < len) {
-      idx = skipWhitespaceAndComments(idx);
-      const { word } = readWord(idx);
-      if (word === 'from') {
-        idx += 4;
-        break;
-      }
-      if (word) {
-        tokens.push({ type: 'word', value: word });
-        idx += word.length;
-      } else {
-        const c = rawCode[idx];
-        tokens.push({ type: 'punct', value: c });
-        idx++;
-      }
-    }
-
-    idx = skipWhitespaceAndComments(idx);
-    if (rawCode[idx] === "'" || rawCode[idx] === '"') {
-      const { str, index: afterStr } = readString(idx);
-      specifier = str;
-      idx = skipWhitespaceAndComments(afterStr);
-      const { word } = readWord(idx);
-      if (word === 'with' || word === 'assert') {
-         idx += word.length;
-         idx = skipWhitespaceAndComments(idx);
-         if (rawCode[idx] === '{') {
-            while (idx < len && rawCode[idx] !== '}') idx++;
-            if (rawCode[idx] === '}') idx++;
-         }
-      }
-      if (rawCode[idx] === ';') idx++;
-    } else {
-      const { line, column } = getLineColumn(rawCode, idx);
-      throw new BuildError({
-        message: `Expected string literal after 'from'`,
-        file: filePath,
-        line,
-        column,
-        suggestion: 'Ensure your import statement has a valid source string (e.g. from "module").',
-        category: 'Syntax'
-      });
-    }
-
-    dependencies.add(specifier);
-
-    let defaultName = null;
-    let namespaceName = null;
-    let namedImports = [];
-
-    let t = 0;
-    if (tokens[t] && tokens[t].type === 'word' && tokens[t].value !== 'as') {
-      defaultName = tokens[t].value;
-      t++;
-      if (tokens[t] && tokens[t].value === ',') t++;
-    }
-    
-    if (tokens[t] && tokens[t].value === '*') {
-      t++;
-      if (tokens[t] && tokens[t].value === 'as') {
-        t++;
-        namespaceName = tokens[t].value;
-        t++;
-      }
-    } else if (tokens[t] && tokens[t].value === '{') {
-      t++;
-      while (t < tokens.length && tokens[t].value !== '}') {
-        if (tokens[t].value === ',') { t++; continue; }
-        const orig = tokens[t].value;
-        let alias = orig;
-        t++;
-        if (tokens[t] && tokens[t].value === 'as') {
-          t++;
-          alias = tokens[t].value;
-          t++;
-        }
-        namedImports.push({ orig, alias });
-      }
-    }
-
-    let tempVar = importTempVars.get(specifier);
-    let isNew = false;
-    if (!tempVar) {
-      const specifierHash = crypto.createHash('sha256').update(specifier).digest('hex').slice(0, 8);
-      tempVar = `__mod_${specifierHash}`;
-      importTempVars.set(specifier, tempVar);
-      isNew = true;
-    }
-    
-    let lines = [];
-    if (isNew) {
-      lines.push(`const ${tempVar} = require('${specifier}');`);
-    }
-    
-    if (namespaceName) {
-      lines.push(`const ${namespaceName} = ${tempVar};`);
-    }
-    if (defaultName) {
-      lines.push(`const ${defaultName} = ${tempVar}.default !== undefined ? ${tempVar}.default : ${tempVar};`);
-    }
-    if (namedImports.length > 0) {
-      const renamed = namedImports.map(n => n.orig === n.alias ? n.orig : `${n.orig}: ${n.alias}`).join(', ');
-      lines.push(`const { ${renamed} } = ${tempVar};`);
-    }
-    
-    return {
-      replacement: lines.join('\n') + (rawCode[idx-1] === ';' ? '' : ''),
-      newIndex: idx
-    };
-  }
-
-  function parseExport(startI) {
-    let idx = startI + 6;
-    idx = skipWhitespaceAndComments(idx);
-    
-    let { word } = readWord(idx);
-    
-    if (word === 'default') {
-      idx += 7;
-      idx = skipWhitespaceAndComments(idx);
-      
-      let { word: nextWord } = readWord(idx);
-      if (nextWord === 'function' || nextWord === 'class') {
-        let peekIdx = skipWhitespaceAndComments(idx + nextWord.length);
-        let { word: name } = readWord(peekIdx);
-        if (name) {
-          if (nextWord === 'function') {
-            return {
-              replacement: `module.exports.default = ${name};\nfunction ${name}`,
-              newIndex: peekIdx + name.length
-            };
-          } else {
-            return {
-              replacement: `const ${name} = module.exports.default = class ${name}`,
-              newIndex: peekIdx + name.length
-            };
-          }
-        }
-        return {
-          replacement: `module.exports.default = `,
-          newIndex: idx
-        };
-      }
-      
-      let exprEnd = idx;
-      let braceCount = 0;
-      let parenCount = 0;
-      let inSq = false;
-      let inDq = false;
-      let inTl = false;
-      let isEsc = false;
-
-      while (exprEnd < len) {
-        const c = rawCode[exprEnd];
-        const nextC = rawCode[exprEnd + 1];
-        
-        if (isEsc) { isEsc = false; exprEnd++; continue; }
-        if (c === '\\') { isEsc = true; exprEnd++; continue; }
-        
-        if (c === "'" && !inDq && !inTl) { inSq = !inSq; exprEnd++; continue; }
-        if (c === '"' && !inSq && !inTl) { inDq = !inDq; exprEnd++; continue; }
-        if (c === '`' && !inSq && !inDq) { inTl = !inTl; exprEnd++; continue; }
-        if (inSq || inDq || inTl) { exprEnd++; continue; }
-        
-        if (c === '/' && nextC === '/') {
-           exprEnd += 2;
-           while (exprEnd < len && rawCode[exprEnd] !== '\n') exprEnd++;
-           continue;
-        }
-        if (c === '/' && nextC === '*') {
-           exprEnd += 2;
-           while (exprEnd < len && !(rawCode[exprEnd] === '*' && rawCode[exprEnd+1] === '/')) exprEnd++;
-           exprEnd += 2;
-           continue;
-        }
-        
-        if (c === '{') braceCount++;
-        else if (c === '}') braceCount--;
-        else if (c === '(') parenCount++;
-        else if (c === ')') parenCount--;
-        
-        if (c === ';' && braceCount === 0 && parenCount === 0) {
-          exprEnd++;
-          break;
-        }
-        if (c === '\n' && braceCount === 0 && parenCount === 0) {
-          break;
-        }
-        exprEnd++;
-      }
-      const expr = rawCode.slice(idx, rawCode[exprEnd - 1] === ';' ? exprEnd - 1 : exprEnd).trim();
-      return {
-        replacement: `const __defaultExport = (${expr});\nmodule.exports.default = __defaultExport;\nif (typeof __defaultExport === 'object' && __defaultExport !== null) { Object.assign(module.exports, __defaultExport); }\n`,
-        newIndex: exprEnd
-      };
-    }
-    
-    if (word === 'const' || word === 'let' || word === 'var') {
-      idx += word.length;
-      idx = skipWhitespaceAndComments(idx);
-      
-      const firstChar = rawCode[idx];
-      if (firstChar === '{' || firstChar === '[') {
-        const { line, column } = getLineColumn(rawCode, idx);
-        throw new BuildError({
-          message: `Destructured export declarations (export ${word} ${firstChar}...${firstChar === '{' ? '}' : ']'} = ...) are not supported.`,
-          file: filePath,
-          line,
-          column,
-          suggestion: `Declare the variable first, then export: ${word} ${firstChar}...${firstChar === '{' ? '}' : ']'} = ...; export { ... };`,
-          category: 'Syntax'
-        });
-      }
-
-      let curr = idx;
-      let depth = 0;
-      let inStr = false;
-      let strChar = '';
-      let isFindingName = true;
-      
-      let replacementStr = `${word} `;
-      let chunkStart = idx;
-
-      while (curr < len) {
-        const c = rawCode[curr];
-
-        if (inStr) {
-          if (c === '\\') curr++;
-          else if (c === strChar) inStr = false;
-          curr++;
-          continue;
-        }
-
-        if (c === '"' || c === "'" || c === '`') {
-          inStr = true;
-          strChar = c;
-          curr++;
-          continue;
-        }
-
-        if (c === '{' || c === '[' || c === '(') depth++;
-        else if (c === '}' || c === ']' || c === ')') depth--;
-
-        if (depth === 0) {
-          if (isFindingName) {
-            const skipRes = skipWhitespaceAndComments(curr);
-            if (skipRes > curr) {
-              curr = skipRes;
-              continue;
-            }
-            const wRes = readWord(curr);
-            if (wRes.word) {
-              const varName = wRes.word;
-              replacementStr += `${varName} = module.exports.${varName} `;
-              curr += varName.length;
-              chunkStart = curr;
-              isFindingName = false;
-              continue;
-            }
-          } else {
-            if (c === ',') {
-              replacementStr += rawCode.slice(chunkStart, curr) + ', ';
-              curr++;
-              chunkStart = curr;
-              isFindingName = true;
-              continue;
-            }
-            if (c === ';' || c === '\n') {
-              break;
-            }
-          }
-        }
-        
-        curr++;
-      }
-      
-      replacementStr += rawCode.slice(chunkStart, curr);
-      if (rawCode[curr] === ';') {
-        replacementStr += ';';
-        curr++;
-      }
-      
-      return {
-        replacement: replacementStr,
-        newIndex: curr
-      };
-    }
-    
-    if (word === 'function' || word === 'class') {
-      idx += word.length;
-      idx = skipWhitespaceAndComments(idx);
-      const { word: name } = readWord(idx);
-      if (word === 'function') {
-        return {
-          replacement: `module.exports.${name} = ${name};\nfunction ${name}`,
-          newIndex: idx + name.length
-        };
-      } else {
-        return {
-          replacement: `const ${name} = module.exports.${name} = class ${name}`,
-          newIndex: idx + name.length
-        };
-      }
-    }
-    
-    if (rawCode[idx] === '{') {
-      let tokens = [];
-      while (idx < len) {
-        idx = skipWhitespaceAndComments(idx);
-        const { word: tWord } = readWord(idx);
-        if (tWord) {
-          tokens.push({ type: 'word', value: tWord });
-          idx += tWord.length;
-        } else {
-          const c = rawCode[idx];
-          tokens.push({ type: 'punct', value: c });
-          idx++;
-          if (c === '}') break;
-        }
-      }
-      
-      idx = skipWhitespaceAndComments(idx);
-      let { word: fromWord } = readWord(idx);
-      
-      let reexports = [];
-      let t = 1; 
-      while (t < tokens.length && tokens[t].value !== '}') {
-        if (tokens[t].value === ',') { t++; continue; }
-        const orig = tokens[t].value;
-        let alias = orig;
-        t++;
-        if (tokens[t] && tokens[t].value === 'as') {
-          t++;
-          alias = tokens[t].value;
-          t++;
-        }
-        reexports.push({ orig, alias });
-      }
-      
-      if (fromWord === 'from') {
-        idx += 4;
-        idx = skipWhitespaceAndComments(idx);
-        if (rawCode[idx] === "'" || rawCode[idx] === '"') {
-          const { str: specifier, index: afterStr } = readString(idx);
-          idx = afterStr;
-          idx = skipWhitespaceAndComments(idx);
-          const { word: attrWord } = readWord(idx);
-          if (attrWord === 'with' || attrWord === 'assert') {
-             idx += attrWord.length;
-             idx = skipWhitespaceAndComments(idx);
-             if (rawCode[idx] === '{') {
-                while (idx < len && rawCode[idx] !== '}') idx++;
-                if (rawCode[idx] === '}') idx++;
-             }
-          }
-          if (rawCode[idx] === ';') idx++;
-          
-          dependencies.add(specifier);
-          let lines = [];
-          for (const { orig, alias } of reexports) {
-            lines.push(`module.exports.${alias} = require('${specifier}').${orig};`);
-          }
-          return {
-            replacement: lines.join('\n') + (lines.length > 0 ? '\n' : ''),
-            newIndex: idx
-          };
-        }
-      } else {
-        if (rawCode[idx] === ';') idx++;
-        let lines = [];
-        for (const { orig, alias } of reexports) {
-          lines.push(`module.exports.${alias} = ${orig};`);
-        }
-        return {
-          replacement: lines.join('\n') + (lines.length > 0 ? '\n' : ''),
-          newIndex: idx
-        };
-      }
-    }
-
-    if (rawCode[idx] === '*') {
-      idx++;
-      idx = skipWhitespaceAndComments(idx);
-      let { word: fromWord } = readWord(idx);
-      if (fromWord === 'from') {
-        idx += 4;
-        idx = skipWhitespaceAndComments(idx);
-        if (rawCode[idx] === "'" || rawCode[idx] === '"') {
-          const { str: specifier, index: afterStr } = readString(idx);
-          idx = afterStr;
-          idx = skipWhitespaceAndComments(idx);
-          if (rawCode[idx] === ';') idx++;
-          
-          dependencies.add(specifier);
-          return {
-            replacement: `Object.assign(module.exports, require('${specifier}'));`,
-            newIndex: idx
-          };
-        }
-      }
-    }
-
-    const { line, column } = getLineColumn(rawCode, idx);
-    throw new BuildError({
-      message: `Unsupported export syntax`,
-      file: filePath,
-      line,
-      column,
-      suggestion: 'ZeroPack supports export default, export const/let/var, export function/class, and export { ... }. Check your syntax.',
-      category: 'Syntax'
-    });
-  }
-
+  let inSingleQuote = false, inDoubleQuote = false, inTemplateLiteral = false, inRegex = false, isEscaped = false;
   let lastRegexNonWhitespace = '';
 
   while (i < len) {
     const char = rawCode[i];
     const nextChar = rawCode[i + 1];
-    
-    if (isEscaped) {
-      output += char;
-      isEscaped = false;
-      i++;
-      continue;
-    }
-    
-    if (char === '\\' && (inSingleQuote || inDoubleQuote || inTemplateLiteral || inRegex)) {
-      output += char;
-      isEscaped = true;
-      i++;
-      continue;
-    }
 
-    if (char === "'" && !inDoubleQuote && !inTemplateLiteral && !inRegex) {
-      inSingleQuote = !inSingleQuote;
-      output += char;
-      i++;
-      continue;
-    }
-    if (char === '"' && !inSingleQuote && !inTemplateLiteral && !inRegex) {
-      inDoubleQuote = !inDoubleQuote;
-      output += char;
-      i++;
-      continue;
-    }
-    if (char === '\`' && !inSingleQuote && !inDoubleQuote && !inRegex) {
-      inTemplateLiteral = !inTemplateLiteral;
-      output += char;
-      i++;
-      continue;
-    }
-    
-    if (inSingleQuote || inDoubleQuote || inTemplateLiteral) {
-      output += char;
-      i++;
-      continue;
-    }
+    if (isEscaped) { output += char; isEscaped = false; i++; continue; }
+    if (char === '\\' && (inSingleQuote || inDoubleQuote || inTemplateLiteral || inRegex)) { output += char; isEscaped = true; i++; continue; }
+    if (char === "'" && !inDoubleQuote && !inTemplateLiteral && !inRegex) { inSingleQuote = !inSingleQuote; output += char; i++; continue; }
+    if (char === '"' && !inSingleQuote && !inTemplateLiteral && !inRegex) { inDoubleQuote = !inDoubleQuote; output += char; i++; continue; }
+    if (char === '`' && !inSingleQuote && !inDoubleQuote && !inRegex) { inTemplateLiteral = !inTemplateLiteral; output += char; i++; continue; }
+    if (inSingleQuote || inDoubleQuote || inTemplateLiteral) { output += char; i++; continue; }
 
     if (char === '/' && nextChar === '/' && !inRegex) {
-      output += char + nextChar;
-      i += 2;
-      while (i < len && rawCode[i] !== '\n') {
-        output += rawCode[i];
-        i++;
-      }
+      output += char + nextChar; i += 2;
+      while (i < len && rawCode[i] !== '\n') { output += rawCode[i]; i++; }
       continue;
     }
     if (char === '/' && nextChar === '*' && !inRegex) {
-      output += char + nextChar;
-      i += 2;
-      while (i < len && !(rawCode[i] === '*' && rawCode[i + 1] === '/')) {
-        output += rawCode[i];
-        i++;
-      }
-      if (i < len) {
-        output += '*/';
-        i += 2;
-      }
+      output += char + nextChar; i += 2;
+      while (i < len && !(rawCode[i] === '*' && rawCode[i + 1] === '/')) { output += rawCode[i]; i++; }
+      if (i < len) { output += '*/'; i += 2; }
       continue;
     }
 
     if (char === '/' && !inRegex) {
       const isRegexStart = /[(,=:[!&|?{};]/.test(lastRegexNonWhitespace) || /\breturn$/.test(output.trim());
-      if (isRegexStart) {
-        inRegex = true;
-        output += char;
-        i++;
-        continue;
-      }
+      if (isRegexStart) { inRegex = true; output += char; i++; continue; }
     } else if (char === '/' && inRegex) {
-      inRegex = false;
-      output += char;
-      i++;
-      continue;
+      inRegex = false; output += char; i++; continue;
     }
-    if (inRegex) {
-      output += char;
-      i++;
-      continue;
-    }
+    if (inRegex) { output += char; i++; continue; }
 
-    if (!/\s/.test(char)) {
-      lastRegexNonWhitespace = char;
-    }
+    if (!/\s/.test(char)) lastRegexNonWhitespace = char;
 
     if (/[a-zA-Z_$]/.test(char)) {
       let prevIdx = i - 1;
       while (prevIdx >= 0 && /\s/.test(rawCode[prevIdx])) prevIdx--;
       const prevChar = prevIdx >= 0 ? rawCode[prevIdx] : '';
-
-      const { word, index: afterWord } = readWord(i);
-      if (prevChar === '.') {
-         output += word;
-         i = afterWord;
-         continue;
-      }
+      const { word, index: afterWord } = readWord(rawCode, len, i);
+      if (prevChar === '.') { output += word; i = afterWord; continue; }
       if (word === 'require') {
-         let rIdx = skipWhitespaceAndComments(afterWord);
-         if (rawCode[rIdx] === '(') {
-           rIdx++;
-           rIdx = skipWhitespaceAndComments(rIdx);
-           if (rawCode[rIdx] === "'" || rawCode[rIdx] === '"' || rawCode[rIdx] === '`') {
-             const { str: specifier } = readString(rIdx);
-             dependencies.add(specifier);
-           }
-         }
-         output += word;
-         i = afterWord;
+        let rIdx = skipWhitespaceAndComments(rawCode, len, afterWord);
+        if (rawCode[rIdx] === '(') {
+          rIdx++;
+          rIdx = skipWhitespaceAndComments(rawCode, len, rIdx);
+          if (rawCode[rIdx] === "'" || rawCode[rIdx] === '"' || rawCode[rIdx] === '`') {
+            const { str: specifier } = readString(rawCode, len, rIdx);
+            dependencies.add(specifier);
+          }
+        }
+        output += word; i = afterWord;
       } else if (word === 'import') {
-         const { replacement, newIndex } = parseImport(i);
-         output += replacement;
-         i = newIndex;
+        const { replacement, newIndex } = parseImport(rawCode, len, filePath, i, dependencies, importTempVars);
+        output += replacement; i = newIndex;
       } else if (word === 'export') {
-         const { replacement, newIndex } = parseExport(i);
-         output += replacement;
-         i = newIndex;
-      } else {
-         output += word;
-         i = afterWord;
-      }
+        const { replacement, newIndex } = parseExport(rawCode, len, filePath, i, dependencies);
+        output += replacement; i = newIndex;
+      } else { output += word; i = afterWord; }
       continue;
     }
 
@@ -1215,15 +1068,69 @@ export function transformModuleCode(rawCode, filePath) {
     i++;
   }
 
-  return {
-    code: output,
-    dependencies: Array.from(dependencies)
-  };
+  return { code: output, dependencies: Array.from(dependencies) };
 }
 
+// ==========================================
+// Module: parser.js
+// ==========================================
 /**
- * Builds the complete dependency graph starting from entry file.
- * Returns an array of module node objects.
+ * @module parser
+ * @description Lexical scanner, ESM→CJS transformer, CSS bundler, and
+ * dependency-graph builder for ZeroPack.
+ *
+ * Responsibilities (delegated to sub-modules):
+ *  1. `BuildError`, `getLineColumn`       → parser-errors.js
+ *  2. `resolveModulePath`                  → parser-resolve.js
+ *  3. `minifyCss`, `transformCssModule`    → parser-css.js
+ *  4. `transformModuleCode`                → parser-transform.js
+ *  5. `buildDependencyGraph`               → this file (legacy/test path)
+ *
+ * Replaces (npm ecosystem):
+ *  - `esbuild` / `webpack`    → custom AST scanner + IIFE bundler
+ *  - `postcss` / `css-loader` → native CSS string parser
+ *
+ * @requires node:fs
+ * @requires node:path
+ * @requires node:crypto
+ */
+
+
+export { BuildError, getLineColumn } from './parser-errors.js';
+export { resolveModulePath } from './parser-resolve.js';
+export { minifyCss } from './parser-css.js';
+export { transformModuleCode } from './parser-transform.js';
+
+
+
+
+
+/**
+ * Builds the complete module dependency graph via depth-first traversal.
+ *
+ * Each node in the returned array is a `ModuleNode`:
+ * ```
+ * {
+ *   id:           number,   // Unique numeric ID; entry is always 0.
+ *   filePath:     string,   // Absolute path.
+ *   relativePath: string,   // Path relative to rootDir (forward slashes).
+ *   code:         string,   // Transformed CJS source.
+ *   dependencies: string[], // Raw import specifiers.
+ *   mapping:      Record<string, number>, // specifier → child module ID.
+ *   hash:         string,   // SHA-256 of raw source (for cache invalidation).
+ * }
+ * ```
+ *
+ * Circular dependencies are detected via a recursion stack and emit a
+ * warning rather than throwing, allowing the build to complete.
+ *
+ * Note: this is the **legacy / test path**. The production CLI uses
+ * `src/graph.js` which adds incremental caching on top.
+ *
+ * @param {string} entryPath  Entry JS path (absolute or relative to `rootDir`).
+ * @param {string} [rootDir=process.cwd()] Project root for path resolution.
+ * @returns {object[]} Ordered array of `ModuleNode` objects.
+ * @throws {BuildError} When the entry file is missing or a dependency cannot be resolved.
  */
 export function buildDependencyGraph(entryPath, rootDir = process.cwd()) {
   const absoluteEntry = path.isAbsolute(entryPath) ? entryPath : path.resolve(rootDir, entryPath);
@@ -1257,11 +1164,9 @@ export function buildDependencyGraph(entryPath, rootDir = process.cwd()) {
     }
     const hash = crypto.createHash('sha256').update(rawContent).digest('hex');
     const { code, dependencies } = transformModuleCode(rawContent, absoluteFilePath);
-
     const id = nextId++;
     fileToIdMap.set(absoluteFilePath, id);
-
-    const moduleNode = {
+    return {
       id,
       filePath: absoluteFilePath,
       relativePath: path.relative(rootDir, absoluteFilePath).replace(/\\/g, '/'),
@@ -1270,8 +1175,6 @@ export function buildDependencyGraph(entryPath, rootDir = process.cwd()) {
       mapping: {},
       hash
     };
-
-    return moduleNode;
   }
 
   function traverse(absoluteFilePath, parentFile = null) {
@@ -1279,11 +1182,9 @@ export function buildDependencyGraph(entryPath, rootDir = process.cwd()) {
       logger.warn(`Circular dependency detected: ${colors.yellow(path.relative(rootDir, absoluteFilePath))} (imported by ${colors.gray(parentFile ? path.relative(rootDir, parentFile) : 'root')})`);
       return fileToIdMap.get(absoluteFilePath);
     }
-
     if (visitedFiles.has(absoluteFilePath)) {
       return fileToIdMap.get(absoluteFilePath);
     }
-
     visitedFiles.add(absoluteFilePath);
     recursionStack.add(absoluteFilePath);
 
@@ -1312,17 +1213,37 @@ export function buildDependencyGraph(entryPath, rootDir = process.cwd()) {
   }
 
   traverse(absoluteEntry);
-
   return graph;
 }
 
 // ==========================================
-// Module: bundler.js
+// Module: bundler-minify.js
 // ==========================================
 /**
- * Pure zero-dependency minifier using string scanner and state machine.
- * Correctly preserves strings ('...', "...", `...`), template literals, and regexes
- * while stripping single-line comments, multi-line comments, and extraneous whitespace.
+ * @module bundler-minify
+ * @description Streaming state-machine JS minifier.
+ */
+
+
+/**
+ * Streaming state-machine JS minifier.
+ *
+ * Algorithm:
+ *  - Iterates the source byte-by-byte via \`node:string_decoder\` (handles
+ *    multi-byte UTF-8 sequences correctly).
+ *  - Tracks \`'\`, \`"\`, \`\` \` \`\`, and \`/regex/\` boundaries so that comment-like
+ *    sequences inside strings are never stripped.
+ *  - Strips \`//\` single-line and \`/* ... *\\/\` multi-line comments.
+ *  - Collapses consecutive whitespace to a single space, omitting the space
+ *    entirely when the previous character was an operator.
+ *  - Inserts synthetic \`;\` before a newline after \`return\`, \`throw\`, \`break\`,
+ *    or \`continue\` to preserve ASI semantics.
+ *
+ * Replaces: \`terser\` / \`uglify-js\` / \`esbuild --minify\`
+ * Standard library: \`node:string_decoder\` (UTF-8 decoding).
+ *
+ * @param {string} code  Raw JavaScript source.
+ * @returns {string}     Minified JavaScript source.
  */
 export function minifyCode(code) {
   const decoder = new StringDecoder('utf8');
@@ -1351,7 +1272,7 @@ export function minifyCode(code) {
       continue;
     }
 
-    if (char === '\\' && (inSingleQuote || inDoubleQuote || inTemplateLiteral || inRegex)) {
+    if (char === '\\\\' && (inSingleQuote || inDoubleQuote || inTemplateLiteral || inRegex)) {
       output += char;
       isEscaped = true;
       i++;
@@ -1375,7 +1296,7 @@ export function minifyCode(code) {
     }
 
     // Template literal (backtick)
-    if (char === '`' && !inSingleQuote && !inDoubleQuote && !inRegex) {
+    if (char === '\`' && !inSingleQuote && !inDoubleQuote && !inRegex) {
       inTemplateLiteral = !inTemplateLiteral;
       output += char;
       i++;
@@ -1462,7 +1383,7 @@ export function minifyCode(code) {
       if (output.endsWith(' ')) {
         const charBeforeSpace = output.slice(-2, -1);
         // Avoid merging ++ or -- or keyword ambiguities
-        if (!(/[+\-]/.test(char) && /[+\-]/.test(charBeforeSpace))) {
+        if (!(/[+\\-]/.test(char) && /[+\\-]/.test(charBeforeSpace))) {
           output = output.slice(0, -1);
         }
       }
@@ -1476,9 +1397,62 @@ export function minifyCode(code) {
   return output.trim();
 }
 
+// ==========================================
+// Module: bundler.js
+// ==========================================
 /**
- * Bundles the dependency graph into a deterministic, single-file IIFE bundle
- * and collects rich build metrics for the ZeroPack dashboard.
+ * @module bundler
+ * @description IIFE bundle generator and state-machine JS minifier.
+ *
+ * Responsibilities:
+ *  1. `minifyCode` — streaming character-level minifier that strips comments
+ *     and collapses whitespace while preserving string/regex/template literals
+ *     and honouring ASI (Automatic Semicolon Insertion) semantics.
+ *  2. `generateBundle` — wraps the sorted module graph in a self-executing
+ *     IIFE with an embedded `require()` runtime; optionally injects the HMR
+ *     client stub and/or minifies the result.
+ *  3. `bundleToFile` — thin wrapper that calls `generateBundle` and writes the
+ *     result to disk, creating parent directories as needed.
+ *
+ * Replaces (npm ecosystem):
+ *  - `terser` / `uglify-js`  → `node:string_decoder` + native lexer
+ *  - `esbuild` bundle output  → hand-written IIFE runtime
+ *
+ * @requires node:fs
+ * @requires node:path
+ * @requires node:crypto
+ * @requires node:string_decoder
+ */
+
+
+
+
+/**
+ * Builds a deterministic IIFE bundle from a resolved module graph.
+ *
+ * Output format:
+ * ```js
+ * (function(modules) { ... })({
+ *   0: [function(require, module, exports) { ... }, { './dep': 1 }],
+ *   ...
+ * });
+ * ```
+ *
+ * Determinism guarantee: modules are sorted lexicographically by
+ * `relativePath` before being serialised, ensuring byte-identical output
+ * across separate build runs on the same source tree.
+ *
+ * @param {object[]} graph     Ordered module nodes from `graph.js` or `parser.js`.
+ * @param {object}   [options]
+ * @param {boolean}  [options.minify=false] Strip comments and whitespace.
+ * @param {boolean}  [options.hmr=false]    Append the HMR WebSocket client stub.
+ * @returns {{
+ *   code:        string,
+ *   size:        number,
+ *   hash:        string,
+ *   modulesCount: number,
+ *   stats:       object
+ * }}
  */
 export function generateBundle(graph, options = {}) {
   const startTime = Date.now();
@@ -1638,7 +1612,15 @@ export function generateBundle(graph, options = {}) {
 }
 
 /**
- * Bundles the graph and writes it directly to disk.
+ * Convenience wrapper: runs `generateBundle` then writes the result to disk.
+ *
+ * Creates parent directories with `fs.mkdirSync({ recursive: true })` if they
+ * do not exist (replaces the need for `mkdirp` / `make-dir`).
+ *
+ * @param {object[]} graph    Module graph from `graph.js` or `parser.js`.
+ * @param {string}   outPath  Output file path (absolute or relative to cwd).
+ * @param {object}   [options] Passed through to `generateBundle`.
+ * @returns {object} `generateBundle` result plus `outputPath`.
  */
 export function bundleToFile(graph, outPath, options = {}) {
   const resolvedOut = path.isAbsolute(outPath) ? outPath : path.resolve(process.cwd(), outPath);
@@ -1658,19 +1640,13 @@ export function bundleToFile(graph, outPath, options = {}) {
 }
 
 // ==========================================
-// Module: dashboard.js
+// Module: dashboard-css-base.js
 // ==========================================
 /**
- * ZeroPack Developer Dashboard (100% Zero-Dependency Frontend)
- * Built with native HTML5, modern CSS Grid/Variables, and Vanilla JavaScript.
+ * @module dashboard-css-base
+ * @description Base CSS variables, resets, and layout for the ZeroPack Dashboard.
  */
-export const DASHBOARD_HTML = `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ZeroPack Dashboard & Build Metrics</title>
-  <style>
+export const DASHBOARD_CSS_BASE = `
     @import url('https://fonts.googleapis.com/css2?family=Jost:wght@300;400;500;600;700&family=Overpass+Mono:wght@400;600&display=swap');
 
     :root {
@@ -1863,7 +1839,16 @@ export const DASHBOARD_HTML = `<!DOCTYPE html>
       outline: 2px solid var(--color-primary);
       outline-offset: 4px;
     }
+`;
 
+// ==========================================
+// Module: dashboard-css-components.js
+// ==========================================
+/**
+ * @module dashboard-css-components
+ * @description Component styles (panels, cards, charts) for the ZeroPack Dashboard.
+ */
+export const DASHBOARD_CSS_COMPONENTS = `
     /* Error Panel */
     .error-panel {
       display: none;
@@ -2038,85 +2023,28 @@ export const DASHBOARD_HTML = `<!DOCTYPE html>
       font-family: var(--font-mono);
       font-weight: 600;
     }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <header>
-      <div class="logo-area">
-        <div class="logo-icon" aria-hidden="true">⚡</div>
-        <div class="logo-text">
-          <h1>ZeroPack Dashboard</h1>
-          <p>Zero-Dependency Real-Time Build Metrics & Analytics</p>
-        </div>
-      </div>
-      <div class="header-actions">
-        <span id="hmr-badge" class="status-badge" role="status" aria-live="polite">
-          <span class="status-dot"></span>
-          <span id="hmr-status-text">Live Reload Active</span>
-        </span>
-        <button id="btn-refresh" class="btn-refresh" onclick="fetchMetrics()" aria-label="Refresh Metrics">
-          <span aria-hidden="true">🔄</span> Refresh
-        </button>
-      </div>
-    </header>
-    
-    <!-- Error Panel -->
-    <div id="error-panel" class="error-panel" role="alert" aria-live="assertive">
-      <div class="error-title">
-        <span aria-hidden="true">❌</span> Build Failed
-      </div>
-      <div id="error-message" style="margin-top: 0.5rem;"></div>
-      <div id="error-details" class="error-details"></div>
-    </div>
+`;
 
-    <!-- Bento Grid for Metrics -->
-    <main class="metrics-grid">
-      <section class="metric-card">
-        <h2 class="metric-title">Total Modules</h2>
-        <div class="metric-value" id="val-module-count">--</div>
-        <p class="metric-subtext">Scanned & bundled in dependency tree</p>
-      </section>
+// ==========================================
+// Module: dashboard-css.js
+// ==========================================
+/**
+ * @module dashboard-css
+ * @description CSS styles for the ZeroPack Dashboard.
+ */
 
-      <section class="metric-card">
-        <h2 class="metric-title">Bundle Size</h2>
-        <div class="metric-value" id="val-bundle-size">--</div>
-        <p class="metric-subtext" id="val-orig-size">Original: -- KB</p>
-      </section>
 
-      <section class="metric-card">
-        <h2 class="metric-title">Build Time</h2>
-        <div class="metric-value" id="val-build-time">-- <span style="font-size: 1rem; color: var(--color-text-muted);">ms</span></div>
-        <p class="metric-subtext" id="val-timestamp">Last build: --</p>
-      </section>
 
-      <section class="metric-card">
-        <h2 class="metric-title">Compression Saved</h2>
-        <div class="metric-value" id="val-compression" style="color: var(--color-success);">--</div>
-        <p class="metric-subtext">Via Native State-Machine Minifier</p>
-      </section>
-    </main>
+export const DASHBOARD_CSS = DASHBOARD_CSS_BASE + '\n' + DASHBOARD_CSS_COMPONENTS;
 
-    <!-- Largest Modules Chart -->
-    <section class="panel">
-      <div class="panel-header">
-        <h2 class="panel-title">
-          <span aria-hidden="true">📊</span> Top Module Size Distribution
-        </h2>
-        <span class="live-tag">RFC 6455 STREAM</span>
-      </div>
-      <div class="bar-chart" id="module-bars">
-        <div style="color: var(--color-text-muted); font-size: 0.9rem;">Loading dependency distribution...</div>
-      </div>
-    </section>
-
-    <footer>
-      <span>ZeroPack v1.0.0 • 100% Native Node.js Toolchain</span>
-      <span>Live Endpoint: <code>/__zeropack/stats</code></span>
-    </footer>
-  </div>
-
-  <script>
+// ==========================================
+// Module: dashboard-js.js
+// ==========================================
+/**
+ * @module dashboard-js
+ * @description Frontend JS for the ZeroPack Dashboard.
+ */
+export const DASHBOARD_JS = `
     function formatBytes(bytes) {
       if (bytes === 0) return '0 B';
       const k = 1024;
@@ -2292,17 +2220,126 @@ export const DASHBOARD_HTML = `<!DOCTYPE html>
     // Initial load
     fetchMetrics();
     initWebSocket();
+`;
+
+// ==========================================
+// Module: dashboard.js
+// ==========================================
+/**
+ * @module dashboard
+ * @description ZeroPack Developer Dashboard (100% Zero-Dependency Frontend)
+ * Built with native HTML5, modern CSS Grid/Variables, and Vanilla JavaScript.
+ *
+ * Responsibilities:
+ *  1. Provides the `DASHBOARD_HTML` constant containing the inline TUI string.
+ *  2. Contains all CSS styling and frontend JavaScript for Live Reload metrics.
+ */
+
+
+
+export const DASHBOARD_HTML = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ZeroPack Dashboard & Build Metrics</title>
+  <style>
+${DASHBOARD_CSS}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="logo-area">
+        <div class="logo-icon" aria-hidden="true">⚡</div>
+        <div class="logo-text">
+          <h1>ZeroPack Dashboard</h1>
+          <p>Zero-Dependency Real-Time Build Metrics & Analytics</p>
+        </div>
+      </div>
+      <div class="header-actions">
+        <span id="hmr-badge" class="status-badge" role="status" aria-live="polite">
+          <span class="status-dot"></span>
+          <span id="hmr-status-text">Live Reload Active</span>
+        </span>
+        <button id="btn-refresh" class="btn-refresh" onclick="fetchMetrics()" aria-label="Refresh Metrics">
+          <span aria-hidden="true">🔄</span> Refresh
+        </button>
+      </div>
+    </header>
+    
+    <!-- Error Panel -->
+    <div id="error-panel" class="error-panel" role="alert" aria-live="assertive">
+      <div class="error-title">
+        <span aria-hidden="true">❌</span> Build Failed
+      </div>
+      <div id="error-message" style="margin-top: 0.5rem;"></div>
+      <div id="error-details" class="error-details"></div>
+    </div>
+
+    <!-- Bento Grid for Metrics -->
+    <main class="metrics-grid">
+      <section class="metric-card">
+        <h2 class="metric-title">Total Modules</h2>
+        <div class="metric-value" id="val-module-count">--</div>
+        <p class="metric-subtext">Scanned & bundled in dependency tree</p>
+      </section>
+
+      <section class="metric-card">
+        <h2 class="metric-title">Bundle Size</h2>
+        <div class="metric-value" id="val-bundle-size">--</div>
+        <p class="metric-subtext" id="val-orig-size">Original: -- KB</p>
+      </section>
+
+      <section class="metric-card">
+        <h2 class="metric-title">Build Time</h2>
+        <div class="metric-value" id="val-build-time">-- <span style="font-size: 1rem; color: var(--color-text-muted);">ms</span></div>
+        <p class="metric-subtext" id="val-timestamp">Last build: --</p>
+      </section>
+
+      <section class="metric-card">
+        <h2 class="metric-title">Compression Saved</h2>
+        <div class="metric-value" id="val-compression" style="color: var(--color-success);">--</div>
+        <p class="metric-subtext">Via Native State-Machine Minifier</p>
+      </section>
+    </main>
+
+    <!-- Largest Modules Chart -->
+    <section class="panel">
+      <div class="panel-header">
+        <h2 class="panel-title">
+          <span aria-hidden="true">📊</span> Top Module Size Distribution
+        </h2>
+        <span class="live-tag">RFC 6455 STREAM</span>
+      </div>
+      <div class="bar-chart" id="module-bars">
+        <div style="color: var(--color-text-muted); font-size: 0.9rem;">Loading dependency distribution...</div>
+      </div>
+    </section>
+
+    <footer>
+      <span>ZeroPack v1.0.0 • 100% Native Node.js Toolchain</span>
+      <span>Live Endpoint: <code>/__zeropack/stats</code></span>
+    </footer>
+  </div>
+
+  <script>
+${DASHBOARD_JS}
   </script>
 </body>
 </html>
 `;
 
 // ==========================================
-// Module: server.js
+// Module: server-static.js
 // ==========================================
-// -----------------------------------------------------------------------------
-// 1. Native MIME Type Lookup Table
-// -----------------------------------------------------------------------------
+/**
+ * @module server-static
+ * @description Native HTTP dev server static file resolution.
+ */
+
+
+
 export const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
   '.htm': 'text/html; charset=utf-8',
@@ -2332,9 +2369,9 @@ export function getMimeType(filePath) {
 }
 
 export function isPathInsideRoot(rootDir, candidatePath) {
-  const resolvedRoot = path.resolve(rootDir);
+  const resolvedRoot      = path.resolve(rootDir);
   const resolvedCandidate = path.resolve(candidatePath);
-  const relative = path.relative(resolvedRoot, resolvedCandidate);
+  const relative          = path.relative(resolvedRoot, resolvedCandidate);
   return relative === '' || (!!relative && !relative.startsWith('..') && !path.isAbsolute(relative));
 }
 
@@ -2362,14 +2399,14 @@ export function resolveStaticFilePath(rootDir, requestPathname) {
   return null;
 }
 
-// -----------------------------------------------------------------------------
-// 2. RFC 6455 WebSocket Frame Encoder & Parser
-// -----------------------------------------------------------------------------
-const WS_MAGIC_STRING = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
-
+// ==========================================
+// Module: server-ws.js
+// ==========================================
 /**
- * Encodes a text payload into an RFC 6455 WebSocket frame (Server-to-Client unmasked)
+ * @module server-ws
+ * @description RFC 6455 WebSocket frame encoding and decoding.
  */
+
 export function encodeWebSocketFrame(payload, opcode = 0x1) {
   const payloadBuffer = Buffer.isBuffer(payload) ? payload : Buffer.from(typeof payload === 'string' ? payload : JSON.stringify(payload), 'utf8');
   const payloadLength = payloadBuffer.length;
@@ -2395,9 +2432,6 @@ export function encodeWebSocketFrame(payload, opcode = 0x1) {
   return Buffer.concat([headerBuffer, payloadBuffer]);
 }
 
-/**
- * Decodes client-to-server RFC 6455 masked WebSocket frames
- */
 export function decodeWebSocketFrame(buffer) {
   if (buffer.length < 2) return null;
 
@@ -2448,12 +2482,101 @@ export function decodeWebSocketFrame(buffer) {
   };
 }
 
-// -----------------------------------------------------------------------------
-// 3. Terminal UI (TUI) — Live Dev Server Dashboard
-// Raw ANSI VT100 escape codes only. Zero external packages.
-// -----------------------------------------------------------------------------
-const tui = {
-  // Cursor & screen control
+// ==========================================
+// Module: server-ws-upgrade.js
+// ==========================================
+/**
+ * @module server-ws-upgrade
+ * @description WebSocket upgrade handler for ZeroPack HMR.
+ */
+
+
+
+const WS_MAGIC_STRING = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
+
+export function handleWsUpgrade(req, socket, head, { activeSockets }) {
+  // Check HTTP method and valid URL
+  if (req.method !== 'GET') {
+    socket.write('HTTP/1.1 405 Method Not Allowed\r\n\r\n');
+    socket.destroy();
+    return;
+  }
+  if (req.url !== '/__zeropack_hmr') {
+    socket.write('HTTP/1.1 404 Not Found\r\n\r\n');
+    socket.destroy();
+    return;
+  }
+  // Check required upgrade headers
+  if (!req.headers.upgrade || req.headers.upgrade.toLowerCase() !== 'websocket') {
+    socket.write('HTTP/1.1 400 Bad Request\r\n\r\n');
+    socket.destroy();
+    return;
+  }
+  const secKey = req.headers['sec-websocket-key'];
+  if (!secKey) {
+    socket.write('HTTP/1.1 400 Bad Request\r\n\r\n');
+    socket.destroy();
+    return;
+  }
+
+  // RFC 6455 Handshake Acceptance Hash
+  const acceptHash = crypto
+    .createHash('sha1')
+    .update(secKey + WS_MAGIC_STRING)
+    .digest('base64');
+
+  const headers = [
+    'HTTP/1.1 101 Switching Protocols',
+    'Upgrade: websocket',
+    'Connection: Upgrade',
+    `Sec-WebSocket-Accept: ${acceptHash}`,
+    '\r\n'
+  ];
+
+  socket.write(headers.join('\r\n'));
+  activeSockets.add(socket);
+
+  logger.hmr(`Client connected to HMR WebSocket. Active clients: ${colors.bold(activeSockets.size)}`);
+
+  socket.on('data', (buffer) => {
+    try {
+      const frame = decodeWebSocketFrame(buffer);
+      if (frame) {
+        // Ping frame (0x9) -> respond with Pong (0xA)
+        if (frame.opcode === 0x9) {
+          socket.write(encodeWebSocketFrame(frame.payload, 0xa));
+        }
+        // Close frame (0x8)
+        else if (frame.opcode === 0x8) {
+          activeSockets.delete(socket);
+          socket.end(encodeWebSocketFrame(Buffer.alloc(0), 0x8));
+        }
+      }
+    } catch (err) {
+      // Malformed frame or decoding error -> destroy socket securely
+      activeSockets.delete(socket);
+      socket.destroy();
+    }
+  });
+
+  socket.on('close', () => {
+    activeSockets.delete(socket);
+  });
+
+  socket.on('error', () => {
+    activeSockets.delete(socket);
+    socket.destroy();
+  });
+}
+
+// ==========================================
+// Module: server-tui.js
+// ==========================================
+/**
+ * @module server-tui
+ * @description Terminal UI (TUI) for the ZeroPack Dev Server.
+ */
+export const tui = {
   hide:   () => process.stdout.write('\x1b[?25l'),
   show:   () => process.stdout.write('\x1b[?25h'),
   home:   () => process.stdout.write('\x1b[H'),
@@ -2461,13 +2584,11 @@ const tui = {
   up:     (n) => process.stdout.write(`\x1b[${n}A`),
   eraseLine: () => process.stdout.write('\x1b[2K\r'),
 
-  // Box-drawing helpers (72-char wide box)
   W: 72,
   top:    (title) => `\x1b[36m\u250c${'\u2500'.repeat(4)} \x1b[1m${title}\x1b[22m ${'\u2500'.repeat(Math.max(0, 66 - title.length))}\u2510\x1b[0m`,
   mid:    () => `\x1b[36m\u251c${'\u2500'.repeat(70)}\u2524\x1b[0m`,
   bot:    () => `\x1b[36m\u2514${'\u2500'.repeat(70)}\u2518\x1b[0m`,
   row:    (text) => {
-    // Strip ANSI for length calculation
     const plain = text.replace(/\x1b\[[\d;]*m/g, '');
     const pad = Math.max(0, 68 - plain.length);
     return `\x1b[36m\u2502\x1b[0m ${text}${' '.repeat(pad)}\x1b[36m\u2502\x1b[0m`;
@@ -2477,7 +2598,7 @@ const tui = {
 const MAX_ACTIVITY = 5;
 const _tuiState = { lines: 0, activity: [], url: '', wsUrl: '', dashUrl: '' };
 
-function _tuiPush(msg) {
+export function _tuiPush(msg) {
   _tuiState.activity.unshift(msg);
   if (_tuiState.activity.length > MAX_ACTIVITY) _tuiState.activity.length = MAX_ACTIVITY;
 }
@@ -2489,7 +2610,6 @@ function formatBytes(b) {
 }
 
 export function renderTUI(stats, { url = _tuiState.url, wsUrl = _tuiState.wsUrl, dashUrl = _tuiState.dashUrl } = {}) {
-  // Persist URLs for subsequent renders
   if (url) _tuiState.url = url;
   if (wsUrl) _tuiState.wsUrl = wsUrl;
   if (dashUrl) _tuiState.dashUrl = dashUrl;
@@ -2529,7 +2649,6 @@ export function renderTUI(stats, { url = _tuiState.url, wsUrl = _tuiState.wsUrl,
   }
   lines.push(tui.bot());
 
-  // If we've rendered before, move cursor up to overwrite
   if (_tuiState.lines > 0) {
     tui.up(_tuiState.lines);
   }
@@ -2538,9 +2657,192 @@ export function renderTUI(stats, { url = _tuiState.url, wsUrl = _tuiState.wsUrl,
   process.stdout.write(lines.map(l => '\x1b[2K' + l).join('\n') + '\n');
 }
 
-// -----------------------------------------------------------------------------
-// 4. Dev Server & HMR Engine
-// -----------------------------------------------------------------------------
+// ==========================================
+// Module: server-http.js
+// ==========================================
+/**
+ * @module server-http
+ * @description HTTP request handler for the ZeroPack Dev Server.
+ */
+
+
+
+
+export function handleHttpRequest(req, res, { port, rootDir, currentStats, logActivity }) {
+  let pathname;
+  try {
+    const parsedUrl = new URL(req.url, `http://localhost:${port}`);
+    pathname = decodeURIComponent(parsedUrl.pathname);
+  } catch (err) {
+    res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('400 Bad Request');
+    return;
+  }
+
+  // Route 1: Dashboard UI
+  if (pathname === '/__zeropack' || pathname === '/__zeropack/') {
+    res.writeHead(200, {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'no-cache, no-store, must-revalidate'
+    });
+    res.end(DASHBOARD_HTML);
+    return;
+  }
+
+  // Route 2: Stats API
+  if (pathname === '/__zeropack/stats') {
+    res.writeHead(200, {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Access-Control-Allow-Origin': '*',
+      'Cache-Control': 'no-cache, no-store, must-revalidate'
+    });
+    res.end(JSON.stringify(currentStats || {}));
+    return;
+  }
+
+  const filePath = resolveStaticFilePath(rootDir, pathname);
+
+  // Serve file if exists
+  if (filePath) {
+    const mimeType = getMimeType(filePath);
+    let content = fs.readFileSync(filePath);
+
+    // Auto-inject WebSocket client script into HTML files
+    if (mimeType.startsWith('text/html')) {
+      let html = content.toString('utf8');
+      if (!html.includes('__zeropack_hmr')) {
+        const hmrScript = `
+<script>
+(function() {
+  var protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  var ws = new WebSocket(protocol + '//' + window.location.host + '/__zeropack_hmr');
+  ws.onopen = function() { console.log('[ZeroPack DevServer] Connected to live reload'); };
+  ws.onmessage = function(e) {
+    var data = JSON.parse(e.data);
+    if (data.type === 'reload') {
+      console.log('[ZeroPack DevServer] Reloading page...');
+      window.location.reload();
+    }
+  };
+})();
+</script>`;
+        if (html.includes('</body>')) {
+          html = html.replace('</body>', `${hmrScript}</body>`);
+        } else {
+          html += hmrScript;
+        }
+        content = Buffer.from(html, 'utf8');
+      }
+    }
+
+    res.writeHead(200, {
+      'Content-Type': mimeType,
+      'Content-Length': content.length,
+      'Access-Control-Allow-Origin': '*',
+      'Cache-Control': 'no-cache, no-store, must-revalidate'
+    });
+    res.end(content);
+    logActivity(`GET ${pathname}  ${colors.gray(mimeType.split(';')[0])}`);
+    return;
+  }
+
+  // HTML page or root fallback
+  const indexHtmlPath = path.join(rootDir, 'index.html');
+  const publicIndexHtml = path.join(rootDir, 'public', 'index.html');
+  const defaultHtml = fs.existsSync(indexHtmlPath) ? indexHtmlPath : (fs.existsSync(publicIndexHtml) ? publicIndexHtml : null);
+
+  if (defaultHtml && (req.headers.accept || '').includes('text/html')) {
+    const html = fs.readFileSync(defaultHtml, 'utf8');
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(html);
+    return;
+  }
+
+  res.writeHead(404, { 'Content-Type': 'text/plain' });
+  res.end(`404 Not Found: ${pathname}`);
+}
+
+// ==========================================
+// Module: server-watcher.js
+// ==========================================
+/**
+ * @module server-watcher
+ * @description Native file watcher with debounce logic.
+ */
+
+
+export function createWatcher({ watchDir, publicDir, onFileChange }) {
+  let debounceTimer = null;
+  let pendingPaths = new Set();
+  const watchers = [];
+
+  function handleWatchEvent(eventType, filename, baseDir) {
+    if (!filename) return;
+    if (filename.endsWith('bundle.js') || filename.includes('node_modules') || filename.startsWith('.')) return;
+
+    pendingPaths.add(path.resolve(baseDir, filename));
+
+    if (debounceTimer) {
+      clearTimeout(debounceTimer);
+    }
+
+    debounceTimer = setTimeout(() => {
+      debounceTimer = null;
+      const paths = Array.from(pendingPaths);
+      pendingPaths.clear();
+      onFileChange(paths);
+    }, 100);
+  }
+
+  function start() {
+    if (fs.existsSync(watchDir)) {
+      const w1 = fs.watch(watchDir, { recursive: true }, (eventType, filename) => handleWatchEvent(eventType, filename, watchDir));
+      w1.on('error', (err) => logger.warn(`Watcher error on ${watchDir}: ${err.message}`));
+      watchers.push(w1);
+    }
+    if (fs.existsSync(publicDir)) {
+      const w2 = fs.watch(publicDir, { recursive: true }, (eventType, filename) => handleWatchEvent(eventType, filename, publicDir));
+      w2.on('error', (err) => logger.warn(`Watcher error on ${publicDir}: ${err.message}`));
+      watchers.push(w2);
+    }
+  }
+
+  function close() {
+    if (debounceTimer) clearTimeout(debounceTimer);
+    for (const w of watchers) {
+      try { w.close(); } catch(e) {}
+    }
+  }
+
+  return { start, close };
+}
+
+// ==========================================
+// Module: server.js
+// ==========================================
+/**
+ * @module server
+ * @description Native HTTP dev server, RFC 6455 WebSocket HMR engine, and
+ * ANSI TUI dashboard for ZeroPack.
+ */
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+/**
+ * Starts the ZeroPack HTTP development server.
+ * @returns {Promise<{ server: http.Server, broadcast: Function, close: Function }>}
+ */
 export async function startDevServer(options = {}) {
   const {
     port = 3000,
@@ -2647,237 +2949,39 @@ export async function startDevServer(options = {}) {
 
   // HTTP Server
   const server = http.createServer((req, res) => {
-    let pathname;
-    try {
-      const parsedUrl = new URL(req.url, `http://localhost:${port}`);
-      pathname = decodeURIComponent(parsedUrl.pathname);
-    } catch (err) {
-      res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
-      res.end('400 Bad Request');
-      return;
-    }
-
-    // -------------------------------------------------------------------------
-    // Route 1: Built-in ZeroPack Dashboard UI (/__zeropack)
-    // -------------------------------------------------------------------------
-    if (pathname === '/__zeropack' || pathname === '/__zeropack/') {
-      res.writeHead(200, {
-        'Content-Type': 'text/html; charset=utf-8',
-        'Cache-Control': 'no-cache, no-store, must-revalidate'
-      });
-      res.end(DASHBOARD_HTML);
-      return;
-    }
-
-    // -------------------------------------------------------------------------
-    // Route 2: Built-in ZeroPack Stats API (/__zeropack/stats)
-    // -------------------------------------------------------------------------
-    if (pathname === '/__zeropack/stats') {
-      res.writeHead(200, {
-        'Content-Type': 'application/json; charset=utf-8',
-        'Access-Control-Allow-Origin': '*',
-        'Cache-Control': 'no-cache, no-store, must-revalidate'
-      });
-      res.end(JSON.stringify(currentStats || {}));
-      return;
-    }
-
-    const filePath = resolveStaticFilePath(rootDir, pathname);
-
-    // Serve file if exists
-    if (filePath) {
-      const mimeType = getMimeType(filePath);
-      let content = fs.readFileSync(filePath);
-
-      // Auto-inject WebSocket client script into HTML files if not already present
-      if (mimeType.startsWith('text/html')) {
-        let html = content.toString('utf8');
-        if (!html.includes('__zeropack_hmr')) {
-          const hmrScript = `
-<script>
-(function() {
-  var protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  var ws = new WebSocket(protocol + '//' + window.location.host + '/__zeropack_hmr');
-  ws.onopen = function() { console.log('[ZeroPack DevServer] Connected to live reload'); };
-  ws.onmessage = function(e) {
-    var data = JSON.parse(e.data);
-    if (data.type === 'reload') {
-      console.log('[ZeroPack DevServer] Reloading page...');
-      window.location.reload();
-    }
-  };
-})();
-</script>`;
-          if (html.includes('</body>')) {
-            html = html.replace('</body>', `${hmrScript}</body>`);
-          } else {
-            html += hmrScript;
-          }
-          content = Buffer.from(html, 'utf8');
-        }
-      }
-
-      res.writeHead(200, {
-        'Content-Type': mimeType,
-        'Content-Length': content.length,
-        'Access-Control-Allow-Origin': '*',
-        'Cache-Control': 'no-cache, no-store, must-revalidate'
-      });
-      res.end(content);
-      logActivity(`GET ${pathname}  ${colors.gray(mimeType.split(';')[0])}`);
-      return;
-    }
-
-    // If request is for an HTML page or root fallback
-    const indexHtmlPath = path.join(rootDir, 'index.html');
-    const publicIndexHtml = path.join(rootDir, 'public', 'index.html');
-    const defaultHtml = fs.existsSync(indexHtmlPath) ? indexHtmlPath : (fs.existsSync(publicIndexHtml) ? publicIndexHtml : null);
-
-    if (defaultHtml && (req.headers.accept || '').includes('text/html')) {
-      const html = fs.readFileSync(defaultHtml, 'utf8');
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      res.end(html);
-      return;
-    }
-
-    res.writeHead(404, { 'Content-Type': 'text/plain' });
-    res.end(`404 Not Found: ${pathname}`);
+    handleHttpRequest(req, res, { port, rootDir, currentStats, logActivity });
   });
 
   // RFC 6455 WebSocket Upgrade Handler
   server.on('upgrade', (req, socket, head) => {
-    // Check HTTP method and valid URL
-    if (req.method !== 'GET') {
-      socket.write('HTTP/1.1 405 Method Not Allowed\r\n\r\n');
-      socket.destroy();
-      return;
-    }
-    if (req.url !== '/__zeropack_hmr') {
-      socket.write('HTTP/1.1 404 Not Found\r\n\r\n');
-      socket.destroy();
-      return;
-    }
-    // Check required upgrade headers
-    if (!req.headers.upgrade || req.headers.upgrade.toLowerCase() !== 'websocket') {
-      socket.write('HTTP/1.1 400 Bad Request\r\n\r\n');
-      socket.destroy();
-      return;
-    }
-    const secKey = req.headers['sec-websocket-key'];
-    if (!secKey) {
-      socket.write('HTTP/1.1 400 Bad Request\r\n\r\n');
-      socket.destroy();
-      return;
-    }
-
-    // RFC 6455 Handshake Acceptance Hash
-    const acceptHash = crypto
-      .createHash('sha1')
-      .update(secKey + WS_MAGIC_STRING)
-      .digest('base64');
-
-    const headers = [
-      'HTTP/1.1 101 Switching Protocols',
-      'Upgrade: websocket',
-      'Connection: Upgrade',
-      `Sec-WebSocket-Accept: ${acceptHash}`,
-      '\r\n'
-    ];
-
-    socket.write(headers.join('\r\n'));
-    activeSockets.add(socket);
-
-    logger.hmr(`Client connected to HMR WebSocket. Active clients: ${colors.bold(activeSockets.size)}`);
-
-    socket.on('data', (buffer) => {
-      try {
-        const frame = decodeWebSocketFrame(buffer);
-        if (frame) {
-          // Ping frame (0x9) -> respond with Pong (0xA)
-          if (frame.opcode === 0x9) {
-            socket.write(encodeWebSocketFrame(frame.payload, 0xa));
-          }
-          // Close frame (0x8)
-          else if (frame.opcode === 0x8) {
-            activeSockets.delete(socket);
-            socket.end(encodeWebSocketFrame(Buffer.alloc(0), 0x8));
-          }
-        }
-      } catch (err) {
-        // Malformed frame or decoding error -> destroy socket securely
-        activeSockets.delete(socket);
-        socket.destroy();
-      }
-    });
-
-    socket.on('close', () => {
-      activeSockets.delete(socket);
-    });
-
-    socket.on('error', () => {
-      activeSockets.delete(socket);
-      socket.destroy();
-    });
+    handleWsUpgrade(req, socket, head, { activeSockets });
   });
 
-  // Native Watcher with 100ms Debounce using `node:fs.watch`
-  let debounceTimer = null;
-  let pendingPaths = new Set();
   const watchDir = path.resolve(rootDir, 'src');
   const publicDir = path.resolve(rootDir, 'public');
 
-  function handleWatchEvent(eventType, filename, baseDir) {
-    if (!filename) return;
-    if (filename.endsWith('bundle.js') || filename.includes('node_modules') || filename.startsWith('.')) return;
-
-    pendingPaths.add(path.resolve(baseDir, filename));
-
-    if (debounceTimer) {
-      clearTimeout(debounceTimer);
-    }
-
-    debounceTimer = setTimeout(() => {
-      debounceTimer = null;
+  const watcher = createWatcher({
+    watchDir,
+    publicDir,
+    onFileChange: (paths) => {
+      if (paths.length === 0) return;
       if (isBuilding) {
         pendingBuild = true;
-        for (const p of pendingPaths) pendingPathsForNextBuild.add(p);
-        pendingPaths.clear();
+        for (const p of paths) pendingPathsForNextBuild.add(p);
         return;
       }
+      const filename = path.basename(paths[0]);
       logger.hmr(`File change detected: ${colors.cyan(filename)}. Rebundling...`);
-      const paths = Array.from(pendingPaths);
-      pendingPaths.clear();
       const success = compile(paths);
       if (success) {
         broadcast({ type: 'reload', file: filename, timestamp: Date.now() });
         logger.hmr(`Dispatched ${colors.green('RELOAD')} frame to ${colors.bold(activeSockets.size)} client(s)`);
       }
-    }, 100);
-  }
-
-  const watchers = [];
-
-  function startWatchers() {
-    if (fs.existsSync(watchDir)) {
-      const w1 = fs.watch(watchDir, { recursive: true }, (eventType, filename) => handleWatchEvent(eventType, filename, watchDir));
-      w1.on('error', (err) => logger.warn(`Watcher error on ${watchDir}: ${err.message}`));
-      watchers.push(w1);
     }
-    if (fs.existsSync(publicDir)) {
-      const w2 = fs.watch(publicDir, { recursive: true }, (eventType, filename) => handleWatchEvent(eventType, filename, publicDir));
-      w2.on('error', (err) => logger.warn(`Watcher error on ${publicDir}: ${err.message}`));
-      watchers.push(w2);
-    }
-  }
+  });
 
   function closeServer() {
-    if (debounceTimer) {
-      clearTimeout(debounceTimer);
-      debounceTimer = null;
-    }
-    for (const w of watchers) {
-      try { w.close(); } catch(e) {}
-    }
+    watcher.close();
     for (const s of activeSockets) {
       try { s.destroy(); } catch(e) {}
     }
@@ -2888,7 +2992,7 @@ export async function startDevServer(options = {}) {
     server.listen(port, host, () => {
       const address = server.address();
       const actualPort = typeof address === 'object' && address ? address.port : port;
-      startWatchers();
+      watcher.start();
 
       const url     = `http://${host}:${actualPort}/`;
       const dashUrl = `http://${host}:${actualPort}/__zeropack`;
@@ -2920,6 +3024,358 @@ export async function startDevServer(options = {}) {
     });
   });
 }
+
+// ==========================================
+// Module: graph-core.js
+// ==========================================
+/**
+ * @module graph-core
+ * @description State and core utilities for the incremental dependency graph.
+ */
+
+
+export const state = {
+  modules: new Map(),
+  byId: new Map(),
+  nextId: 0,
+  rootDir: process.cwd(),
+  metrics: {
+    totalModules: 0,
+    modulesReused: 0,
+    modulesReprocessed: 0,
+    fullRebuilds: 0,
+    incrementalRebuilds: 0,
+    lastBuildDurationMs: 0
+  }
+};
+
+export function canonical(p) {
+  return path.resolve(p);
+}
+
+export function hashContent(content) {
+  return crypto.createHash('sha256').update(content).digest('hex');
+}
+
+export function createModuleState(filePath, id) {
+  const relativePath = path.relative(state.rootDir, filePath).replace(/\\/g, '/');
+  return {
+    id,
+    filePath,
+    relativePath,
+    code: '',
+    dependencies: [],
+    mapping: {},
+    dependents: new Set(),
+    hash: ''
+  };
+}
+
+export function processFile(filePath) {
+  let raw;
+  try {
+    raw = fs.readFileSync(filePath, 'utf8');
+  } catch (err) {
+    throw new BuildError({
+      message: `Failed to read file: ${err.message}`,
+      file: filePath,
+      suggestion: 'Check file permissions or if the file was deleted.',
+      category: 'FileSystem'
+    });
+  }
+  const srcHash = hashContent(raw);
+  const { code, dependencies } = transformModuleCode(raw, filePath);
+  return { srcHash, code, dependencies };
+}
+
+export function getMetrics() {
+  return { ...state.metrics };
+}
+
+export function __resetForTest() {
+  state.modules.clear();
+  state.byId.clear();
+  state.nextId = 0;
+  state.metrics = { totalModules: 0, modulesReused: 0, modulesReprocessed: 0, fullRebuilds: 0, incrementalRebuilds: 0, lastBuildDurationMs: 0 };
+}
+
+// ==========================================
+// Module: graph-build.js
+// ==========================================
+/**
+ * @module graph-build
+ * @description Graph building engine for ZeroPack.
+ */
+
+
+
+/**
+ * Recursively ensure a module exists in the graph and is up-to-date.
+ * Returns the ModuleState instance.
+ */
+export function ensureModule(filePath) {
+  const absPath = canonical(filePath);
+  let mod = state.modules.get(absPath);
+
+  // If module exists, check if source changed
+  if (mod) {
+    const { srcHash, code, dependencies } = processFile(absPath);
+    
+    // Check if any mapped children are missing from the graph index
+    let allDepsExist = true;
+    for (const childId of Object.values(mod.mapping)) {
+      if (!state.byId.has(childId)) {
+        allDepsExist = false;
+        break;
+      }
+    }
+
+    if (mod.hash === srcHash && Object.keys(mod.mapping).length === mod.dependencies.length && allDepsExist) {
+      // Source unchanged and all dependencies exist – reuse existing transformed code & deps.
+      state.metrics.modulesReused++;
+      return mod;
+    }
+    // Source changed or deps missing – we will reprocess.
+    mod.code = code;
+    mod.dependencies = dependencies;
+    mod.hash = srcHash;
+    state.metrics.modulesReprocessed++;
+  } else {
+    // New module – assign new id.
+    const id = state.nextId++;
+    mod = createModuleState(absPath, id);
+    const { srcHash, code, dependencies } = processFile(absPath);
+    mod.code = code;
+    mod.dependencies = dependencies;
+    mod.hash = srcHash;
+    state.modules.set(absPath, mod);
+    state.byId.set(id, mod);
+    state.metrics.modulesReprocessed++;
+  }
+
+  // Update forward dependencies (mapping) and reverse edges.
+  // First, clear any old reverse links that may no longer be needed.
+  for (const childId of Object.values(mod.mapping)) {
+    const child = state.byId.get(childId);
+    if (child) child.dependents.delete(mod.id);
+  }
+  mod.mapping = {};
+
+  for (const spec of mod.dependencies) {
+    let resolved;
+    try {
+      resolved = resolveModulePath(absPath, spec, state.rootDir);
+    } catch (err) {
+      // Propagate resolution errors as BuildError (already formatted)
+      throw err;
+    }
+    const child = ensureModule(resolved);
+    mod.mapping[spec] = child.id;
+    child.dependents.add(mod.id);
+  }
+
+  return mod;
+}
+
+/** Full clean build from entry point – clears existing state. */
+export function fullBuild(entryPath, rootDir = process.cwd()) {
+  const start = Date.now();
+  // Reset state but keep same nextId counter for deterministic ids across runs.
+  state.modules.clear();
+  state.byId.clear();
+  state.nextId = 0;
+  state.rootDir = rootDir;
+  // Reset metrics for this build.
+  state.metrics = {
+    totalModules: 0,
+    modulesReused: 0,
+    modulesReprocessed: 0,
+    fullRebuilds: state.metrics.fullRebuilds + 1,
+    incrementalRebuilds: state.metrics.incrementalRebuilds,
+    lastBuildDurationMs: 0
+  };
+
+  // Ensure entry first – its ID will be 0.
+  const entryAbs = canonical(entryPath);
+  const entryMod = ensureModule(entryAbs);
+  // Force entry ID to 0 for reproducibility (if not already).
+  if (entryMod.id !== 0) {
+    const zeroMod = state.byId.get(0);
+    if (zeroMod) {
+      const tmp = zeroMod.id;
+      zeroMod.id = entryMod.id;
+      entryMod.id = tmp;
+      // Update byId index
+      state.byId.set(zeroMod.id, zeroMod);
+      state.byId.set(entryMod.id, entryMod);
+    } else {
+      state.byId.delete(entryMod.id);
+      entryMod.id = 0;
+      state.byId.set(0, entryMod);
+    }
+  }
+
+  const graphArray = [...state.modules.values()];
+  state.metrics.totalModules = graphArray.length;
+  state.metrics.lastBuildDurationMs = Date.now() - start;
+  return graphArray;
+}
+
+// ==========================================
+// Module: graph-incremental.js
+// ==========================================
+/**
+ * @module graph-incremental
+ * @description Incremental build logic for ZeroPack's graph.
+ */
+
+
+
+/** Collect all dependents (upstream) of a set of module IDs. */
+export function collectDependents(startIds) {
+  const visited = new Set();
+  const stack = [...startIds];
+  while (stack.length) {
+    const id = stack.pop();
+    if (visited.has(id)) continue;
+    visited.add(id);
+    const mod = state.byId.get(id);
+    if (!mod) continue;
+    for (const parentId of mod.dependents) {
+      stack.push(parentId);
+    }
+  }
+  return visited;
+}
+
+/** Incremental rebuild based on a list of changed file paths. */
+export function incrementalBuild(entryPath, changedPaths) {
+  const start = Date.now();
+  state.metrics.incrementalRebuilds++;
+  const entryAbs = canonical(entryPath);
+  if (!state.modules.has(entryAbs)) {
+    return { graph: fullBuild(entryPath, state.rootDir), fallback: true };
+  }
+
+  const changedIds = new Set();
+  for (let p of changedPaths) {
+    const abs = canonical(p);
+    if (!fs.existsSync(abs)) {
+      const old = state.modules.get(abs);
+      if (old) {
+        for (const parentId of old.dependents) {
+          const parent = state.byId.get(parentId);
+          if (parent) {
+            for (const [spec, childId] of Object.entries(parent.mapping)) {
+              if (childId === old.id) {
+                delete parent.mapping[spec];
+              }
+            }
+          }
+        }
+        state.modules.delete(abs);
+        state.byId.delete(old.id);
+        for (const depId of old.dependents) changedIds.add(depId);
+      }
+      continue;
+    }
+    try {
+      const mod = ensureModule(abs);
+      changedIds.add(mod.id);
+    } catch (e) {
+      if (e.name === 'BuildError') throw e;
+      return { graph: fullBuild(entryPath, state.rootDir), fallback: true };
+    }
+  }
+
+  const affectedIds = collectDependents(changedIds);
+  const entryMod = state.modules.get(entryAbs);
+  if (entryMod) affectedIds.add(entryMod.id);
+
+  for (const id of affectedIds) {
+    const mod = state.byId.get(id);
+    if (!mod) continue;
+    try {
+      ensureModule(mod.filePath);
+    } catch (e) {
+      if (e.name === 'BuildError') throw e;
+      return { graph: fullBuild(entryPath, state.rootDir), fallback: true };
+    }
+  }
+
+  const graphArray = [...state.modules.values()];
+  state.metrics.totalModules = graphArray.length;
+  state.metrics.lastBuildDurationMs = Date.now() - start;
+  return { graph: graphArray, fallback: false };
+}
+
+// ==========================================
+// Module: graph.js
+// ==========================================
+/**
+ * @module graph
+ * @description Incremental dependency-graph engine for ZeroPack.
+ *
+ * Maintains an in-memory module cache keyed by absolute file path. On each
+ * rebuild, only modules whose SHA-256 hash has changed (or whose dependencies
+ * have been structurally altered) are reprocessed. Unchanged modules are
+ * reused directly, making hot-path rebuilds sub-millisecond for small change sets.
+ *
+ * Key concepts:
+ *  - **Full build** (`build`): clears state, traverses all imports from entry.
+ *  - **Incremental build** (`rebuild`): re-processes only changed files and
+ *    their transitive dependents (reverse-edge propagation).
+ *  - **Fallback**: any graph inconsistency triggers a safe full rebuild.
+ *
+ * This module is the **production path** used by the CLI and dev server.
+ * `src/parser.js#buildDependencyGraph` is the simpler test/legacy path.
+ *
+ * @requires node:fs
+ * @requires node:path
+ * @requires node:crypto
+ */
+
+
+
+
+
+// =============================================================================
+// Public API
+// =============================================================================
+
+/**
+ * Performs a full clean build from `entryPath`.
+ *
+ * Clears all cached module state and rebuilds the entire dependency graph
+ * from scratch. Guarantees the entry module receives ID `0`, which is the
+ * module ID the IIFE runtime boots from.
+ *
+ * @param {string} entryPath  Entry JS file (absolute or relative to cwd).
+ * @param {string} [rootDir=process.cwd()] Project root for path resolution.
+ * @returns {object[]} Array of `ModuleState` objects (compatible with bundler).
+ */
+export function build(entryPath, rootDir = process.cwd()) {
+  return fullBuild(entryPath, rootDir);
+}
+
+/**
+ * Performs an incremental rebuild after one or more source files changed.
+ *
+ * Only the changed files and their transitive dependents (tracked via reverse
+ * edges in `ModuleState.dependents`) are reprocessed. Falls back to a full
+ * build if the graph is in an inconsistent state (e.g. first run, or after a
+ * module was added/removed and the graph topology changed).
+ *
+ * @param {string}   entryPath    Entry JS file (absolute path or relative to cwd).
+ * @param {string[]} changedPaths Absolute paths of files that changed on disk.
+ * @returns {object[]} Updated module graph array.
+ */
+export function rebuild(entryPath, changedPaths) {
+  const result = incrementalBuild(entryPath, changedPaths);
+  return result.graph;
+}
+
+export { getMetrics, __resetForTest };
 // -----------------------------------------------------------------------------
 // Auto-Run CLI when invoked directly
 // -----------------------------------------------------------------------------
