@@ -10,141 +10,226 @@ import { logger, colors } from './cli.js';
  * while stripping single-line comments, multi-line comments, and extraneous whitespace.
  */
 export function minifyCode(code) {
-  const decoder = new StringDecoder('utf8');
-  const buffer = Buffer.from(code);
-  const text = decoder.write(buffer) + decoder.end();
-
   let output = '';
   let i = 0;
-  const len = text.length;
+  const len = code.length;
 
-  let inSingleQuote = false;
-  let inDoubleQuote = false;
-  let inTemplateLiteral = false;
-  let inRegex = false;
-  let isEscaped = false;
+  // Stack of contexts: 'CODE', 'TEMPLATE', 'EXPR'
+  const stack = ['CODE'];
+  const braceStack = [];
+
+  let lastSignificantToken = '';
+  let hadNewline = false;
+
+  function currentContext() {
+    return stack[stack.length - 1];
+  }
+
+  function isWordChar(ch) {
+    return /[a-zA-Z0-9_$]/.test(ch);
+  }
+
+  function canPrecedeRegex(tok) {
+    if (!tok) return true;
+    if (/[(=:[!&|?{};,^~<>+\-*/%]/.test(tok.slice(-1))) return true;
+    const keywords = [
+      'return', 'case', 'typeof', 'yield', 'await', 'delete',
+      'void', 'throw', 'default', 'do', 'else', 'instanceof', 'in', 'new'
+    ];
+    return keywords.includes(tok);
+  }
+
+  function appendToken(token, isWord = false) {
+    const lastChar = output.slice(-1);
+    const firstChar = token[0];
+
+    // Preserve newlines where ASI (automatic semicolon insertion) is needed
+    if (hadNewline) {
+      const prevCanEnd = isWordChar(lastChar) || /[)\]}"'`]/.test(lastChar) || output.endsWith('++') || output.endsWith('--');
+      const nextCanStart = isWordChar(firstChar) || /[(/[{]/.test(firstChar);
+      if (prevCanEnd && nextCanStart) {
+        output += '\n';
+      }
+    }
+
+    const updatedLastChar = output.slice(-1);
+    if (isWordChar(updatedLastChar) && isWordChar(firstChar)) {
+      output += ' ';
+    } else if (updatedLastChar === '+' && firstChar === '+') {
+      output += ' ';
+    } else if (updatedLastChar === '-' && firstChar === '-') {
+      output += ' ';
+    } else if (updatedLastChar === '/' && firstChar === '/') {
+      output += ' ';
+    }
+
+    output += token;
+    hadNewline = false;
+    lastSignificantToken = token;
+  }
 
   while (i < len) {
-    const char = text[i];
-    const nextChar = i + 1 < len ? text[i + 1] : '';
+    const char = code[i];
+    const nextChar = i + 1 < len ? code[i + 1] : '';
+    const ctx = currentContext();
 
-    // Handle escapes inside strings/regexes
-    if (isEscaped) {
-      output += char;
-      isEscaped = false;
-      i++;
-      continue;
-    }
-
-    if (char === '\\' && (inSingleQuote || inDoubleQuote || inTemplateLiteral || inRegex)) {
-      output += char;
-      isEscaped = true;
-      i++;
-      continue;
-    }
-
-    // Single-quote string literal
-    if (char === "'" && !inDoubleQuote && !inTemplateLiteral && !inRegex) {
-      inSingleQuote = !inSingleQuote;
-      output += char;
-      i++;
-      continue;
-    }
-
-    // Double-quote string literal
-    if (char === '"' && !inSingleQuote && !inTemplateLiteral && !inRegex) {
-      inDoubleQuote = !inDoubleQuote;
-      output += char;
-      i++;
-      continue;
-    }
-
-    // Template literal (backtick)
-    if (char === '`' && !inSingleQuote && !inDoubleQuote && !inRegex) {
-      inTemplateLiteral = !inTemplateLiteral;
-      output += char;
-      i++;
-      continue;
-    }
-
-    // If inside any string literal, keep characters exactly as-is
-    if (inSingleQuote || inDoubleQuote || inTemplateLiteral) {
-      output += char;
-      i++;
-      continue;
-    }
-
-    // Check for single-line comments //
-    if (char === '/' && nextChar === '/' && !inRegex) {
-      i += 2;
-      while (i < len && text[i] !== '\n' && text[i] !== '\r') {
-        i++;
+    if (ctx === 'TEMPLATE') {
+      if (char === '\\') {
+        output += char + nextChar;
+        i += 2;
+        continue;
       }
-      continue;
-    }
-
-    // Check for multi-line comments /* ... */
-    if (char === '/' && nextChar === '*' && !inRegex) {
-      i += 2;
-      while (i < len && !(text[i] === '*' && text[i + 1] === '/')) {
-        i++;
-      }
-      i += 2; // skip */
-      continue;
-    }
-
-    // Check for Regex literal start (heuristic: preceded by punctuation or keyword)
-    if (char === '/' && !inRegex) {
-      const prevNonSpace = output.trim().slice(-1);
-      const isRegexStart = /[(,=:[!&|?{};]/.test(prevNonSpace) || output.trim().endsWith('return');
-      if (isRegexStart) {
-        inRegex = true;
+      if (char === '`') {
+        stack.pop();
         output += char;
+        lastSignificantToken = '`';
         i++;
         continue;
       }
-    } else if (char === '/' && inRegex) {
-      inRegex = false;
+      if (char === '$' && nextChar === '{') {
+        stack.push('EXPR');
+        braceStack.push(1);
+        output += '${';
+        i += 2;
+        lastSignificantToken = '{';
+        continue;
+      }
       output += char;
       i++;
       continue;
     }
 
-    if (inRegex) {
-      output += char;
+    // Inside CODE or EXPR:
+    // 1. Single line comment
+    if (char === '/' && nextChar === '/') {
+      i += 2;
+      while (i < len && code[i] !== '\n' && code[i] !== '\r') {
+        i++;
+      }
+      hadNewline = true;
+      continue;
+    }
+
+    // 2. Multi line comment
+    if (char === '/' && nextChar === '*') {
+      i += 2;
+      while (i < len && !(code[i] === '*' && code[i + 1] === '/')) {
+        if (code[i] === '\n') hadNewline = true;
+        i++;
+      }
+      i += 2;
+      continue;
+    }
+
+    // 3. Template literal start
+    if (char === '`') {
+      appendToken('`');
+      stack.push('TEMPLATE');
       i++;
       continue;
     }
 
-    // Handle whitespace outside strings
+    // 4. Single / Double quoted strings
+    if (char === "'" || char === '"') {
+      const quote = char;
+      let str = quote;
+      i++;
+      while (i < len) {
+        const c = code[i];
+        str += c;
+        if (c === '\\') {
+          i++;
+          if (i < len) str += code[i];
+        } else if (c === quote) {
+          i++;
+          break;
+        }
+        i++;
+      }
+      appendToken(str);
+      continue;
+    }
+
+    // 5. Regex literal vs division
+    if (char === '/') {
+      if (canPrecedeRegex(lastSignificantToken)) {
+        let regexStr = '/';
+        i++;
+        let inCharClass = false;
+        while (i < len) {
+          const c = code[i];
+          regexStr += c;
+          if (c === '\\') {
+            i++;
+            if (i < len) regexStr += code[i];
+          } else if (c === '[' && !inCharClass) {
+            inCharClass = true;
+          } else if (c === ']' && inCharClass) {
+            inCharClass = false;
+          } else if (c === '/' && !inCharClass) {
+            i++;
+            while (i < len && /[a-z]/i.test(code[i])) {
+              regexStr += code[i];
+              i++;
+            }
+            break;
+          }
+          i++;
+        }
+        appendToken(regexStr);
+        continue;
+      }
+    }
+
+    // 6. Curly braces in EXPR
+    if (ctx === 'EXPR') {
+      if (char === '{') {
+        braceStack[braceStack.length - 1]++;
+      } else if (char === '}') {
+        braceStack[braceStack.length - 1]--;
+        if (braceStack[braceStack.length - 1] === 0) {
+          braceStack.pop();
+          stack.pop();
+          output += '}';
+          lastSignificantToken = '}';
+          i++;
+          continue;
+        }
+      }
+    }
+
+    // 7. Whitespace handling
     if (/\s/.test(char)) {
-      // Collapse multiple whitespace/newlines into a single space or omit if adjacent to operators
-      const lastChar = output.slice(-1);
-      if (lastChar && !/[()\[\]{},;:+\-*\/=<>!&|%?]/.test(lastChar)) {
-        if (!output.endsWith(' ')) {
-          output += ' ';
-        }
+      if (char === '\n' || char === '\r') {
+        hadNewline = true;
       }
       i++;
       continue;
     }
 
-    // If adding an operator, strip trailing space if safe
-    if (/[()\[\]{},;:+\-*\/=<>!&|%?]/.test(char)) {
-      if (output.endsWith(' ')) {
-        const charBeforeSpace = output.slice(-2, -1);
-        // Avoid merging ++ or -- or keyword ambiguities
-        if (!(/[+\-]/.test(char) && /[+\-]/.test(charBeforeSpace))) {
-          output = output.slice(0, -1);
-        }
+    // 8. Word tokens (identifiers, numbers, keywords)
+    if (isWordChar(char)) {
+      let word = '';
+      while (i < len && isWordChar(code[i])) {
+        word += code[i];
+        i++;
       }
+      appendToken(word, true);
+      continue;
     }
 
-    output += char;
+    // 9. Multi-char operators (++ , --)
+    if ((char === '+' && nextChar === '+') || (char === '-' && nextChar === '-')) {
+      appendToken(char + nextChar);
+      i += 2;
+      continue;
+    }
+
+    // 10. Single punctuation/operator
+    appendToken(char);
     i++;
   }
 
-  // Final cleanup of extra empty lines or spaces
   return output.trim();
 }
 

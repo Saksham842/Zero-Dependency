@@ -4,7 +4,7 @@
  * Zero-Dependency JavaScript Bundler, Minifier & RFC 6455 HMR Dev Server
  * Built exclusively with Node.js Native Core Libraries.
  * 
- * Auto-generated on: 2026-08-29T11:10:45.765Z
+ * Auto-generated on: 2026-10-03T21:51:31.445Z
  */
 
 import fs from 'node:fs';
@@ -340,6 +340,34 @@ export function resolveModulePath(fromFile, specifier, rootDir = process.cwd()) 
 }
 
 /**
+ * Extracts binding identifier names from object and array destructuring patterns.
+ * Handles renaming (a: b), default values (a = 1, b: c = 2), and rest elements (...rest).
+ */
+export function extractBindingIdentifiers(pattern) {
+  const ids = [];
+  const cleaned = pattern.trim().replace(/^\{|\}$|^\[|\]$/g, '');
+  const parts = cleaned.split(',');
+  for (let part of parts) {
+    part = part.trim();
+    if (!part) continue;
+    if (part.startsWith('...')) {
+      const id = part.slice(3).trim();
+      if (id) ids.push(id);
+      continue;
+    }
+    if (part.includes(':')) {
+      const val = part.split(':')[1].trim();
+      const id = val.split('=')[0].trim();
+      if (id) ids.push(id);
+    } else {
+      const id = part.split('=')[0].trim();
+      if (id) ids.push(id);
+    }
+  }
+  return ids;
+}
+
+/**
  * Extracts import/require specifiers and transforms ESM syntax into runtime CJS format.
  */
 export function transformModuleCode(rawCode, filePath) {
@@ -347,7 +375,7 @@ export function transformModuleCode(rawCode, filePath) {
   let code = rawCode;
 
   // If JSON file, wrap as module export
-  if (filePath.endsWith('.json')) {
+  if (filePath && filePath.endsWith('.json')) {
     return {
       code: `module.exports = ${rawCode.trim() || '{}'};`,
       dependencies: []
@@ -361,19 +389,39 @@ export function transformModuleCode(rawCode, filePath) {
     dependencies.add(reqMatch[2]);
   }
 
-  // 2. Transform `import * as name from 'specifier'`
+  // 2. Transform `export * as name from 'specifier'`
   code = code.replace(
-    /(?:^|\n)\s*import\s+\*\s+as\s+([a-zA-Z_$][0-9a-zA-Z_$]*)\s+from\s+(['"])(.*?)\2;?/g,
+    /(?:^|[\n;])\s*export\s+\*\s+as\s+([a-zA-Z_$][0-9a-zA-Z_$]*)\s+from\s+(['"])(.*?)\2(?:\s*(?:with|assert)\s*\{[\s\S]*?\})?;?/g,
+    (_, varName, quote, specifier) => {
+      dependencies.add(specifier);
+      return `\nmodule.exports.${varName} = require('${specifier}');`;
+    }
+  );
+
+  // 3. Transform `export * from 'specifier'`
+  code = code.replace(
+    /(?:^|[\n;])\s*export\s+\*\s+from\s+(['"])(.*?)\1(?:\s*(?:with|assert)\s*\{[\s\S]*?\})?;?/g,
+    (_, quote, specifier) => {
+      dependencies.add(specifier);
+      const specifierHash = crypto.createHash('sha256').update(specifier).digest('hex').slice(0, 8);
+      const tempVar = `__reexport_${specifierHash}`;
+      return `\nconst ${tempVar} = require('${specifier}');\nfor (const __k in ${tempVar}) { if (__k !== 'default' && __k !== '__esModule') { module.exports[__k] = ${tempVar}[__k]; } }`;
+    }
+  );
+
+  // 4. Transform `import * as name from 'specifier'` (with optional with/assert attributes)
+  code = code.replace(
+    /(?:^|[\n;])\s*import\s+\*\s+as\s+([a-zA-Z_$][0-9a-zA-Z_$]*)\s+from\s+(['"])(.*?)\2(?:\s*(?:with|assert)\s*\{[\s\S]*?\})?;?/g,
     (_, varName, quote, specifier) => {
       dependencies.add(specifier);
       return `\nconst ${varName} = require('${specifier}');`;
     }
   );
 
-  // 3. Transform `import DefaultName, { a, b as c } from 'specifier'` or `import DefaultName from 'specifier'`
-  // or `import { a, b as c } from 'specifier'`
+  // 5. Transform `import DefaultName, { a, b as c } from 'specifier'` or `import DefaultName from 'specifier'`
+  // or `import { a, b as c } from 'specifier'` (with optional with/assert attributes)
   code = code.replace(
-    /(?:^|\n)\s*import\s+([\s\S]*?)\s+from\s+(['"])(.*?)\2;?/g,
+    /(?:^|[\n;])\s*import\s+([\s\S]*?)\s+from\s+(['"])(.*?)\2(?:\s*(?:with|assert)\s*\{[\s\S]*?\})?;?/g,
     (_, importClause, quote, specifier) => {
       dependencies.add(specifier);
       const clause = importClause.trim();
@@ -420,79 +468,104 @@ export function transformModuleCode(rawCode, filePath) {
     }
   );
 
-  // 4. Transform bare side-effect `import 'specifier'`
+  // 6. Transform bare side-effect `import 'specifier'`
   code = code.replace(
-    /(?:^|\n)\s*import\s+(['"])(.*?)\1;?/g,
+    /(?:^|[\n;])\s*import\s+(['"])(.*?)\1(?:\s*(?:with|assert)\s*\{[\s\S]*?\})?;?/g,
     (_, quote, specifier) => {
       dependencies.add(specifier);
       return `\nrequire('${specifier}');`;
     }
   );
 
-  // 5. Transform `export default function foo() {}` or `export default class Bar {}`
+  // 7. Transform `export default function foo() {}` or `export default async function foo() {}`
   code = code.replace(
-    /(?:^|\n)\s*export\s+default\s+function\s+([a-zA-Z_$][0-9a-zA-Z_$]*)\s*\(([\s\S]*?)\)\s*\{/g,
-    (_, funcName, params) => {
-      return `\nfunction ${funcName}(${params}) {\nmodule.exports.default = ${funcName};\n`;
+    /(?:^|[\n;])\s*export\s+default\s+(async\s+)?function\s+([a-zA-Z_$][0-9a-zA-Z_$]*)\s*\(([\s\S]*?)\)\s*\{/g,
+    (_, isAsync, funcName, params) => {
+      return `\nmodule.exports.default = ${funcName};\n${isAsync || ''}function ${funcName}(${params}) {\n`;
     }
   );
 
+  // 8. Transform `export default class Foo {}`
   code = code.replace(
-    /(?:^|\n)\s*export\s+default\s+class\s+([a-zA-Z_$][0-9a-zA-Z_$]*)([\s\S]*?)\{/g,
+    /(?:^|[\n;])\s*export\s+default\s+class\s+([a-zA-Z_$][0-9a-zA-Z_$]*)([\s\S]*?)\{/g,
     (_, className, rest) => {
-      return `\nclass ${className}${rest}{\n`;
+      return `\nclass ${className}${rest}{\nmodule.exports.default = ${className};\n`;
     }
   );
 
-  // 6. Transform generic `export default ...` (handles multiline objects, expressions, anonymous functions)
+  // 9. Transform generic `export default ...` (expressions, objects, anonymous functions/classes)
   code = code.replace(
-    /(?:^|\n)\s*export\s+default\s+([\s\S]+?)(?:;|\n\s*(?:export|import|\/\*|\/\/|$))/g,
+    /(?:^|[\n;])\s*export\s+default\s+([\s\S]+?)(?:;|\n\s*(?:export|import|\/\*|\/\/|$))/g,
     (match, expr) => {
       const trimmedExpr = expr.trim();
       if (!trimmedExpr) return match;
-      if (trimmedExpr.startsWith('function') && !trimmedExpr.startsWith('function(')) {
-        return match; // already handled
+      if (trimmedExpr.startsWith('function') && !trimmedExpr.startsWith('function(') && !trimmedExpr.startsWith('function (')) {
+        return match; // Named function handled above
       }
-      return `\nconst __defaultExport = (${trimmedExpr});\nmodule.exports.default = __defaultExport;\nif (typeof __defaultExport === 'object' && __defaultExport !== null) { Object.assign(module.exports, __defaultExport); }\n`;
+      return `\nconst __defaultExport = (${trimmedExpr});\nmodule.exports.default = __defaultExport;\n`;
     }
   );
 
-  // 7. Transform `export const/let/var name = ...`
+  // 10. Transform `export function name(...) {}` and `export async function name(...) {}`
   code = code.replace(
-    /(?:^|\n)\s*export\s+(const|let|var)\s+([a-zA-Z_$][0-9a-zA-Z_$]*)\s*=/g,
-    (_, decl, varName) => {
-      return `\n${decl} ${varName} = module.exports.${varName} =`;
+    /(?:^|[\n;])\s*export\s+(async\s+)?function\s+([a-zA-Z_$][0-9a-zA-Z_$]*)\s*\(([\s\S]*?)\)\s*\{/g,
+    (_, isAsync, funcName, params) => {
+      return `\nmodule.exports.${funcName} = ${funcName};\n${isAsync || ''}function ${funcName}(${params}) {\n`;
     }
   );
 
-  // 8. Transform `export function name(...) {}`
+  // 11. Transform `export class name {}`
   code = code.replace(
-    /(?:^|\n)\s*export\s+function\s+([a-zA-Z_$][0-9a-zA-Z_$]*)\s*\(([\s\S]*?)\)\s*\{/g,
-    (_, funcName, params) => {
-      return `\nfunction ${funcName}(${params}) {\nmodule.exports.${funcName} = ${funcName};\n`;
-    }
-  );
-
-  // 9. Transform `export class name {}`
-  code = code.replace(
-    /(?:^|\n)\s*export\s+class\s+([a-zA-Z_$][0-9a-zA-Z_$]*)([\s\S]*?)\{/g,
+    /(?:^|[\n;])\s*export\s+class\s+([a-zA-Z_$][0-9a-zA-Z_$]*)([\s\S]*?)\{/g,
     (_, className, rest) => {
-      return `\nclass ${className}${rest}{\n`;
+      return `\nclass ${className}${rest}{\nmodule.exports.${className} = ${className};\n`;
     }
   );
 
-  // 10. Transform `export { a, b as c }`
+  // 12. Transform destructured exports: `export const/let/var { ... } = ...;` or `export const/let/var [ ... ] = ...;`
   code = code.replace(
-    /(?:^|\n)\s*export\s+\{([\s\S]*?)\};?/g,
+    /(?:^|[\n;])\s*export\s+(const|let|var)\s+(\{[\s\S]*?\}|\[[\s\S]*?\])\s*=\s*([\s\S]*?)(?:;|\n\s*(?:export|import|\/\*|\/\/|$))/g,
+    (_, decl, pattern, expr) => {
+      const ids = extractBindingIdentifiers(pattern);
+      const isMutable = decl === 'let' || decl === 'var';
+      const exportBindings = ids.map((id) => {
+        if (isMutable) {
+          return `try { Object.defineProperty(module.exports, '${id}', { get: () => ${id}, set: (v) => { ${id} = v; }, enumerable: true, configurable: true }); } catch (_) { module.exports.${id} = ${id}; }`;
+        }
+        return `module.exports.${id} = ${id};`;
+      }).join('\n');
+      return `\n${decl} ${pattern} = ${expr.trim()};\n${exportBindings}\n`;
+    }
+  );
+
+  // 13. Transform `export let/var name = ...` (with live bindings)
+  code = code.replace(
+    /(?:^|[\n;])\s*export\s+(let|var)\s+([a-zA-Z_$][0-9a-zA-Z_$]*)\s*=\s*([\s\S]*?)(?:;|\n\s*(?:export|import|\/\*|\/\/|$))/g,
+    (_, decl, varName, expr) => {
+      return `\n${decl} ${varName} = ${expr.trim()};\ntry { Object.defineProperty(module.exports, '${varName}', { get: () => ${varName}, set: (v) => { ${varName} = v; }, enumerable: true, configurable: true }); } catch (_) { module.exports.${varName} = ${varName}; }\n`;
+    }
+  );
+
+  // 14. Transform `export const name = ...`
+  code = code.replace(
+    /(?:^|[\n;])\s*export\s+const\s+([a-zA-Z_$][0-9a-zA-Z_$]*)\s*=/g,
+    (_, varName) => {
+      return `\nconst ${varName} = module.exports.${varName} =`;
+    }
+  );
+
+  // 15. Transform `export { a, b as c }` (with live getter bindings)
+  code = code.replace(
+    /(?:^|[\n;])\s*export\s+\{([\s\S]*?)\};?/g,
     (_, inside) => {
       const exportsList = inside.split(',').map((part) => {
         const p = part.trim();
         if (!p) return '';
         if (p.includes(' as ')) {
           const [orig, alias] = p.split(' as ').map((s) => s.trim());
-          return `module.exports.${alias} = ${orig};`;
+          return `try { Object.defineProperty(module.exports, '${alias}', { get: () => ${orig}, enumerable: true, configurable: true }); } catch (_) { module.exports.${alias} = ${orig}; }`;
         }
-        return `module.exports.${p} = ${p};`;
+        return `try { Object.defineProperty(module.exports, '${p}', { get: () => ${p}, enumerable: true, configurable: true }); } catch (_) { module.exports.${p} = ${p}; }`;
       }).filter(Boolean).join('\n');
       return '\n' + exportsList;
     }
@@ -587,141 +660,226 @@ export function buildDependencyGraph(entryPath, rootDir = process.cwd()) {
  * while stripping single-line comments, multi-line comments, and extraneous whitespace.
  */
 export function minifyCode(code) {
-  const decoder = new StringDecoder('utf8');
-  const buffer = Buffer.from(code);
-  const text = decoder.write(buffer) + decoder.end();
-
   let output = '';
   let i = 0;
-  const len = text.length;
+  const len = code.length;
 
-  let inSingleQuote = false;
-  let inDoubleQuote = false;
-  let inTemplateLiteral = false;
-  let inRegex = false;
-  let isEscaped = false;
+  // Stack of contexts: 'CODE', 'TEMPLATE', 'EXPR'
+  const stack = ['CODE'];
+  const braceStack = [];
+
+  let lastSignificantToken = '';
+  let hadNewline = false;
+
+  function currentContext() {
+    return stack[stack.length - 1];
+  }
+
+  function isWordChar(ch) {
+    return /[a-zA-Z0-9_$]/.test(ch);
+  }
+
+  function canPrecedeRegex(tok) {
+    if (!tok) return true;
+    if (/[(=:[!&|?{};,^~<>+\-*/%]/.test(tok.slice(-1))) return true;
+    const keywords = [
+      'return', 'case', 'typeof', 'yield', 'await', 'delete',
+      'void', 'throw', 'default', 'do', 'else', 'instanceof', 'in', 'new'
+    ];
+    return keywords.includes(tok);
+  }
+
+  function appendToken(token, isWord = false) {
+    const lastChar = output.slice(-1);
+    const firstChar = token[0];
+
+    // Preserve newlines where ASI (automatic semicolon insertion) is needed
+    if (hadNewline) {
+      const prevCanEnd = isWordChar(lastChar) || /[)\]}"'`]/.test(lastChar) || output.endsWith('++') || output.endsWith('--');
+      const nextCanStart = isWordChar(firstChar) || /[(/[{]/.test(firstChar);
+      if (prevCanEnd && nextCanStart) {
+        output += '\n';
+      }
+    }
+
+    const updatedLastChar = output.slice(-1);
+    if (isWordChar(updatedLastChar) && isWordChar(firstChar)) {
+      output += ' ';
+    } else if (updatedLastChar === '+' && firstChar === '+') {
+      output += ' ';
+    } else if (updatedLastChar === '-' && firstChar === '-') {
+      output += ' ';
+    } else if (updatedLastChar === '/' && firstChar === '/') {
+      output += ' ';
+    }
+
+    output += token;
+    hadNewline = false;
+    lastSignificantToken = token;
+  }
 
   while (i < len) {
-    const char = text[i];
-    const nextChar = i + 1 < len ? text[i + 1] : '';
+    const char = code[i];
+    const nextChar = i + 1 < len ? code[i + 1] : '';
+    const ctx = currentContext();
 
-    // Handle escapes inside strings/regexes
-    if (isEscaped) {
-      output += char;
-      isEscaped = false;
-      i++;
-      continue;
-    }
-
-    if (char === '\\' && (inSingleQuote || inDoubleQuote || inTemplateLiteral || inRegex)) {
-      output += char;
-      isEscaped = true;
-      i++;
-      continue;
-    }
-
-    // Single-quote string literal
-    if (char === "'" && !inDoubleQuote && !inTemplateLiteral && !inRegex) {
-      inSingleQuote = !inSingleQuote;
-      output += char;
-      i++;
-      continue;
-    }
-
-    // Double-quote string literal
-    if (char === '"' && !inSingleQuote && !inTemplateLiteral && !inRegex) {
-      inDoubleQuote = !inDoubleQuote;
-      output += char;
-      i++;
-      continue;
-    }
-
-    // Template literal (backtick)
-    if (char === '`' && !inSingleQuote && !inDoubleQuote && !inRegex) {
-      inTemplateLiteral = !inTemplateLiteral;
-      output += char;
-      i++;
-      continue;
-    }
-
-    // If inside any string literal, keep characters exactly as-is
-    if (inSingleQuote || inDoubleQuote || inTemplateLiteral) {
-      output += char;
-      i++;
-      continue;
-    }
-
-    // Check for single-line comments //
-    if (char === '/' && nextChar === '/' && !inRegex) {
-      i += 2;
-      while (i < len && text[i] !== '\n' && text[i] !== '\r') {
-        i++;
+    if (ctx === 'TEMPLATE') {
+      if (char === '\\') {
+        output += char + nextChar;
+        i += 2;
+        continue;
       }
-      continue;
-    }
-
-    // Check for multi-line comments /* ... */
-    if (char === '/' && nextChar === '*' && !inRegex) {
-      i += 2;
-      while (i < len && !(text[i] === '*' && text[i + 1] === '/')) {
-        i++;
-      }
-      i += 2; // skip */
-      continue;
-    }
-
-    // Check for Regex literal start (heuristic: preceded by punctuation or keyword)
-    if (char === '/' && !inRegex) {
-      const prevNonSpace = output.trim().slice(-1);
-      const isRegexStart = /[(,=:[!&|?{};]/.test(prevNonSpace) || output.trim().endsWith('return');
-      if (isRegexStart) {
-        inRegex = true;
+      if (char === '`') {
+        stack.pop();
         output += char;
+        lastSignificantToken = '`';
         i++;
         continue;
       }
-    } else if (char === '/' && inRegex) {
-      inRegex = false;
+      if (char === '$' && nextChar === '{') {
+        stack.push('EXPR');
+        braceStack.push(1);
+        output += '${';
+        i += 2;
+        lastSignificantToken = '{';
+        continue;
+      }
       output += char;
       i++;
       continue;
     }
 
-    if (inRegex) {
-      output += char;
+    // Inside CODE or EXPR:
+    // 1. Single line comment
+    if (char === '/' && nextChar === '/') {
+      i += 2;
+      while (i < len && code[i] !== '\n' && code[i] !== '\r') {
+        i++;
+      }
+      hadNewline = true;
+      continue;
+    }
+
+    // 2. Multi line comment
+    if (char === '/' && nextChar === '*') {
+      i += 2;
+      while (i < len && !(code[i] === '*' && code[i + 1] === '/')) {
+        if (code[i] === '\n') hadNewline = true;
+        i++;
+      }
+      i += 2;
+      continue;
+    }
+
+    // 3. Template literal start
+    if (char === '`') {
+      appendToken('`');
+      stack.push('TEMPLATE');
       i++;
       continue;
     }
 
-    // Handle whitespace outside strings
+    // 4. Single / Double quoted strings
+    if (char === "'" || char === '"') {
+      const quote = char;
+      let str = quote;
+      i++;
+      while (i < len) {
+        const c = code[i];
+        str += c;
+        if (c === '\\') {
+          i++;
+          if (i < len) str += code[i];
+        } else if (c === quote) {
+          i++;
+          break;
+        }
+        i++;
+      }
+      appendToken(str);
+      continue;
+    }
+
+    // 5. Regex literal vs division
+    if (char === '/') {
+      if (canPrecedeRegex(lastSignificantToken)) {
+        let regexStr = '/';
+        i++;
+        let inCharClass = false;
+        while (i < len) {
+          const c = code[i];
+          regexStr += c;
+          if (c === '\\') {
+            i++;
+            if (i < len) regexStr += code[i];
+          } else if (c === '[' && !inCharClass) {
+            inCharClass = true;
+          } else if (c === ']' && inCharClass) {
+            inCharClass = false;
+          } else if (c === '/' && !inCharClass) {
+            i++;
+            while (i < len && /[a-z]/i.test(code[i])) {
+              regexStr += code[i];
+              i++;
+            }
+            break;
+          }
+          i++;
+        }
+        appendToken(regexStr);
+        continue;
+      }
+    }
+
+    // 6. Curly braces in EXPR
+    if (ctx === 'EXPR') {
+      if (char === '{') {
+        braceStack[braceStack.length - 1]++;
+      } else if (char === '}') {
+        braceStack[braceStack.length - 1]--;
+        if (braceStack[braceStack.length - 1] === 0) {
+          braceStack.pop();
+          stack.pop();
+          output += '}';
+          lastSignificantToken = '}';
+          i++;
+          continue;
+        }
+      }
+    }
+
+    // 7. Whitespace handling
     if (/\s/.test(char)) {
-      // Collapse multiple whitespace/newlines into a single space or omit if adjacent to operators
-      const lastChar = output.slice(-1);
-      if (lastChar && !/[()\[\]{},;:+\-*\/=<>!&|%?]/.test(lastChar)) {
-        if (!output.endsWith(' ')) {
-          output += ' ';
-        }
+      if (char === '\n' || char === '\r') {
+        hadNewline = true;
       }
       i++;
       continue;
     }
 
-    // If adding an operator, strip trailing space if safe
-    if (/[()\[\]{},;:+\-*\/=<>!&|%?]/.test(char)) {
-      if (output.endsWith(' ')) {
-        const charBeforeSpace = output.slice(-2, -1);
-        // Avoid merging ++ or -- or keyword ambiguities
-        if (!(/[+\-]/.test(char) && /[+\-]/.test(charBeforeSpace))) {
-          output = output.slice(0, -1);
-        }
+    // 8. Word tokens (identifiers, numbers, keywords)
+    if (isWordChar(char)) {
+      let word = '';
+      while (i < len && isWordChar(code[i])) {
+        word += code[i];
+        i++;
       }
+      appendToken(word, true);
+      continue;
     }
 
-    output += char;
+    // 9. Multi-char operators (++ , --)
+    if ((char === '+' && nextChar === '+') || (char === '-' && nextChar === '-')) {
+      appendToken(char + nextChar);
+      i += 2;
+      continue;
+    }
+
+    // 10. Single punctuation/operator
+    appendToken(char);
     i++;
   }
 
-  // Final cleanup of extra empty lines or spaces
   return output.trim();
 }
 

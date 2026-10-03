@@ -103,3 +103,37 @@ test('Bug 10: Live bindings for exported mutable variables', () => {
   mod.exports.increment();
   assert.strictEqual(mod.exports.count, 1, 'count getter should return updated live value 1');
 });
+
+test('Circular imports: functions are exported and callable across cycles', () => {
+  // Module A: imports b, exports a()
+  const codeA = `
+    import { b } from './b.js';
+    export function a() { return 'a' + b(); }
+  `;
+  // Module B: imports a, exports b()
+  const codeB = `
+    import { a } from './a.js';
+    export function b() { return 'b'; }
+  `;
+
+  const transA = transformModuleCode(codeA, 'a.js');
+  const transB = transformModuleCode(codeB, 'b.js');
+
+  const modules = {
+    './a.js': transA.code,
+    './b.js': transB.code
+  };
+
+  const installed = {};
+  function fakeRequire(id) {
+    if (installed[id]) return installed[id].exports;
+    const m = installed[id] = { exports: {} };
+    const fn = new Function('require', 'module', 'exports', modules[id]);
+    fn(fakeRequire, m, m.exports);
+    return m.exports;
+  }
+
+  const modA = fakeRequire('./a.js');
+  assert.strictEqual(typeof modA.a, 'function');
+  assert.strictEqual(modA.a(), 'ab');
+});
