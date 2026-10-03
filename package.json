@@ -12,7 +12,9 @@
     "dev": "node src/cli.js --serve",
     "build": "node src/cli.js --minify",
     "build-standalone": "node src/build-tools.js",
-    "verify": "node src/build-tools.js --verify"
+    "verify": "node src/build-tools.js --verify",
+    "test": "node --test",
+    "check": "node --test"
   },
   "keywords": [
     "bundler",
