@@ -1,7 +1,7 @@
 import http from 'node:http';
 import crypto from 'node:crypto';
-import { startDevServer, decodeWebSocketFrame } from './src/server.js';
-import { logger, colors } from './src/cli.js';
+import { startDevServer, decodeWebSocketFrame } from '../src/server.js';
+import { logger, colors } from '../src/cli.js';
 
 async function testServerAndHmr() {
   logger.info('Starting dev server test on port 4321...');

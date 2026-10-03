@@ -206,6 +206,11 @@ export async function startDevServer(options = {}) {
     }
   }
 
+  // Security warning when binding to public/network interfaces
+  if (host && host !== 'localhost' && host !== '127.0.0.1') {
+    logger.warn(`Security notice: Dev server listening on non-localhost interface (${colors.yellow(host)}). HMR WebSocket and dashboard may be accessible over the network.`);
+  }
+
   let currentStats = initialStats;
   const activeSockets = new Set();
   const buildHistory = [];
@@ -514,6 +519,31 @@ export async function startDevServer(options = {}) {
     if (!secKey) {
       socket.destroy();
       return;
+    }
+
+    // Security: Validate WebSocket Origin header to protect against Cross-Site WebSocket Hijacking (CSWSH)
+    const origin = req.headers.origin;
+    if (origin) {
+      try {
+        const originUrl = new URL(origin);
+        const hostHeader = (req.headers.host || '').split(':')[0];
+        const isTrusted = (
+          originUrl.hostname === 'localhost' ||
+          originUrl.hostname === '127.0.0.1' ||
+          originUrl.hostname === hostHeader ||
+          originUrl.hostname === host
+        );
+        if (!isTrusted) {
+          logger.warn(`Blocked WebSocket upgrade from untrusted origin: ${colors.yellow(origin)}`);
+          socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
+          socket.destroy();
+          return;
+        }
+      } catch (_) {
+        socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
+        socket.destroy();
+        return;
+      }
     }
 
     // RFC 6455 Handshake Acceptance Hash

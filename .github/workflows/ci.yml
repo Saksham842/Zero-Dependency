@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    name: Node ${{ matrix.node-version }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [18.x, 20.x, 22.x]
+        os: [ubuntu-latest, windows-latest]
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Verify Strict Zero Dependencies
+        run: |
+          node -e "
+            const pkg = require('./package.json');
+            const deps = Object.keys(pkg.dependencies || {});
+            const devDeps = Object.keys(pkg.devDependencies || {});
+            if (deps.length > 0 || devDeps.length > 0) {
+              console.error('ZERO-DEPENDENCY VIOLATION: dependencies must be empty!');
+              process.exit(1);
+            }
+            console.log('Zero dependencies verified: 0 dependencies & 0 devDependencies.');
+          "
+
+      - name: Run Native Test Suite
+        run: npm run check
+
+      - name: Verify Standalone Executable & Deterministic Reproducibility
+        run: npm run verify
+
+      - name: Check for zeropack.js Staleness
+        shell: bash
+        run: |
+          node src/build-tools.js
+          if ! git diff --exit-code zeropack.js; then
+            echo "ERROR: zeropack.js is out of date with src/! Run 'npm run build-standalone' and commit."
+            exit 1
+          fi
