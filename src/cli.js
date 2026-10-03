@@ -177,6 +177,10 @@ export function parseCliArgs(args = process.argv.slice(2)) {
       type: 'boolean',
       default: false
     },
+    sourcemap: {
+      type: 'boolean',
+      default: false
+    },
     env: {
       type: 'string',
       default: '.env'
@@ -208,6 +212,7 @@ export function parseCliArgs(args = process.argv.slice(2)) {
       serve: Boolean(values.serve),
       port: parseInt(values.port, 10) || 3000,
       minify: Boolean(values.minify),
+      sourcemap: Boolean(values.sourcemap),
       env: values.env,
       help: Boolean(values.help),
       positionals
@@ -246,17 +251,22 @@ export async function runCli(args = process.argv.slice(2)) {
   logger.build(`Target Entry: ${colors.cyan(config.entry)}`);
   logger.build(`Output Path:  ${colors.cyan(config.out)}`);
   logger.build(`Minification: ${config.minify ? colors.green('ENABLED') : colors.gray('DISABLED')}`);
+  logger.build(`Source Map:   ${config.sourcemap ? colors.green('ENABLED') : colors.gray('DISABLED')}`);
 
   try {
     const graph = buildDependencyGraph(config.entry);
     const result = bundleToFile(graph, config.out, {
       minify: config.minify,
+      sourcemap: config.sourcemap,
       entryPath: config.entry
     });
 
     const elapsed = (performance.now() - startTime).toFixed(2);
     logger.success(`Bundle generated in ${colors.bold(elapsed + 'ms')} (${colors.cyan(result.size + ' bytes')}) [${colors.green(result.stats.compressionRatio + ' saved')}]`);
     logger.info(`SHA-256 Hash: ${colors.gray(result.hash)}`);
+    if (result.mapPath) {
+      logger.info(`Source Map:   ${colors.cyan(result.mapPath)}`);
+    }
 
     if (config.serve) {
       const { startDevServer } = await import('./server.js');
@@ -265,12 +275,17 @@ export async function runCli(args = process.argv.slice(2)) {
         entry: config.entry,
         out: config.out,
         minify: config.minify,
+        sourcemap: config.sourcemap,
         rootDir: process.cwd(),
         stats: result.stats
       });
     }
   } catch (error) {
-    logger.error(`Build failed: ${error.message}`);
+    if (typeof error.format === 'function') {
+      logger.raw('\n' + error.format() + '\n');
+    } else {
+      logger.error(`Build failed: ${error.message}`);
+    }
     if (process.env.DEBUG) {
       console.error(error.stack);
     }

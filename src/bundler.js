@@ -3,13 +3,16 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { StringDecoder } from 'node:string_decoder';
 import { logger, colors } from './cli.js';
+import { generateSourceMap } from './sourcemap.js';
 
 /**
  * Pure zero-dependency minifier using string scanner and state machine.
  * Correctly preserves strings ('...', "...", `...`), template literals, and regexes
  * while stripping single-line comments, multi-line comments, and extraneous whitespace.
+ * Optionally tracks source map mappings.
  */
-export function minifyCode(code) {
+export function minifyCode(code, options = {}) {
+  const { sourcemap = false, initialLineMappings = null } = options;
   let output = '';
   let i = 0;
   const len = code.length;
@@ -20,6 +23,12 @@ export function minifyCode(code) {
 
   let lastSignificantToken = '';
   let hadNewline = false;
+
+  let inLine = 0;
+  let inCol = 0;
+  let outLine = 0;
+  let outCol = 0;
+  const minifiedLineMappings = [[]];
 
   function currentContext() {
     return stack[stack.length - 1];
@@ -49,21 +58,34 @@ export function minifyCode(code) {
       const nextCanStart = isWordChar(firstChar) || /[(/[{]/.test(firstChar);
       if (prevCanEnd && nextCanStart) {
         output += '\n';
+        outLine++;
+        outCol = 0;
+        if (sourcemap) minifiedLineMappings.push([]);
       }
     }
 
     const updatedLastChar = output.slice(-1);
     if (isWordChar(updatedLastChar) && isWordChar(firstChar)) {
       output += ' ';
+      outCol++;
     } else if (updatedLastChar === '+' && firstChar === '+') {
       output += ' ';
+      outCol++;
     } else if (updatedLastChar === '-' && firstChar === '-') {
       output += ' ';
+      outCol++;
     } else if (updatedLastChar === '/' && firstChar === '/') {
       output += ' ';
+      outCol++;
+    }
+
+    if (sourcemap && initialLineMappings && initialLineMappings[inLine] && initialLineMappings[inLine].length > 0) {
+      const [_, srcIdx, oLine, _origCol] = initialLineMappings[inLine][0];
+      minifiedLineMappings[minifiedLineMappings.length - 1].push([outCol, srcIdx, oLine, inCol]);
     }
 
     output += token;
+    outCol += token.length;
     hadNewline = false;
     lastSignificantToken = token;
   }
@@ -73,15 +95,24 @@ export function minifyCode(code) {
     const nextChar = i + 1 < len ? code[i + 1] : '';
     const ctx = currentContext();
 
+    if (char === '\n') {
+      inLine++;
+      inCol = 0;
+    } else {
+      inCol++;
+    }
+
     if (ctx === 'TEMPLATE') {
       if (char === '\\') {
         output += char + nextChar;
+        outCol += 2;
         i += 2;
         continue;
       }
       if (char === '`') {
         stack.pop();
         output += char;
+        outCol++;
         lastSignificantToken = '`';
         i++;
         continue;
@@ -90,11 +121,19 @@ export function minifyCode(code) {
         stack.push('EXPR');
         braceStack.push(1);
         output += '${';
+        outCol += 2;
         i += 2;
         lastSignificantToken = '{';
         continue;
       }
       output += char;
+      if (char === '\n') {
+        outLine++;
+        outCol = 0;
+        if (sourcemap) minifiedLineMappings.push([]);
+      } else {
+        outCol++;
+      }
       i++;
       continue;
     }
@@ -114,7 +153,11 @@ export function minifyCode(code) {
     if (char === '/' && nextChar === '*') {
       i += 2;
       while (i < len && !(code[i] === '*' && code[i + 1] === '/')) {
-        if (code[i] === '\n') hadNewline = true;
+        if (code[i] === '\n') {
+          hadNewline = true;
+          inLine++;
+          inCol = 0;
+        }
         i++;
       }
       i += 2;
@@ -191,6 +234,7 @@ export function minifyCode(code) {
           braceStack.pop();
           stack.pop();
           output += '}';
+          outCol++;
           lastSignificantToken = '}';
           i++;
           continue;
@@ -230,6 +274,13 @@ export function minifyCode(code) {
     i++;
   }
 
+  if (sourcemap) {
+    return {
+      code: output.trim(),
+      lineMappings: minifiedLineMappings
+    };
+  }
+
   return output.trim();
 }
 
@@ -239,7 +290,12 @@ export function minifyCode(code) {
  */
 export function generateBundle(graph, options = {}) {
   const startTime = Date.now();
-  const { minify = false, hmr = false } = options;
+  const {
+    minify = false,
+    hmr = false,
+    sourcemap = false,
+    outFile = 'dist/bundle.js'
+  } = options;
 
   // 1. Calculate original size and module metrics
   let originalSize = 0;
@@ -260,23 +316,19 @@ export function generateBundle(graph, options = {}) {
 
   // 2. Sort modules deterministically by relative path for byte-identical reproducible builds
   const sortedGraph = [...graph].sort((a, b) => a.relativePath.localeCompare(b.relativePath));
+  const sources = sortedGraph.map((mod) => ({
+    path: mod.relativePath,
+    content: mod.rawCode || mod.code
+  }));
 
-  // 3. Build modules mapping string
-  let modulesString = '{\n';
-  for (const mod of sortedGraph) {
-    const mappingJson = JSON.stringify(mod.mapping);
-    modulesString += `  ${mod.id}: [\n`;
-    modulesString += `    function(require, module, exports) {\n`;
-    modulesString += `// [ZeroPack Module: ${mod.relativePath}]\n`;
-    modulesString += mod.code + '\n';
-    modulesString += `    },\n`;
-    modulesString += `    ${mappingJson}\n`;
-    modulesString += `  ],\n`;
+  // Track line mappings for source maps
+  const lineMappings = [];
+  function addEmptyLines(count) {
+    for (let c = 0; c < count; c++) lineMappings.push([]);
   }
-  modulesString += '}';
 
-  // 4. Runtime bundle template (Zero-dependency custom require runtime)
-  let bundleSource = `/**
+  // 3. Runtime bundle template header
+  const headerTemplate = `/**
  * Bundled by ZeroPack (Zero-Dependency Bundler)
  */
 (function(modules) {
@@ -326,8 +378,43 @@ export function generateBundle(graph, options = {}) {
 
   // Load entry module (id: 0)
   return __zeropack_require__(0);
-})(${modulesString});
-`;
+})({`;
+
+  let bundleSource = headerTemplate;
+  addEmptyLines(headerTemplate.split('\n').length - 1);
+
+  // Build modules mapping string
+  let modulesString = '\n';
+  addEmptyLines(1);
+
+  for (let modIdx = 0; modIdx < sortedGraph.length; modIdx++) {
+    const mod = sortedGraph[modIdx];
+    const mappingJson = JSON.stringify(mod.mapping);
+
+    modulesString += `  ${mod.id}: [\n`;
+    addEmptyLines(1);
+    modulesString += `    function(require, module, exports) {\n`;
+    addEmptyLines(1);
+    modulesString += `// [ZeroPack Module: ${mod.relativePath}]\n`;
+    addEmptyLines(1);
+
+    const codeLines = mod.code.split('\n');
+    for (let l = 0; l < codeLines.length; l++) {
+      modulesString += codeLines[l] + '\n';
+      lineMappings.push([[0, modIdx, l, 0]]);
+    }
+
+    modulesString += `    },\n`;
+    addEmptyLines(1);
+    modulesString += `    ${mappingJson}\n`;
+    addEmptyLines(1);
+    modulesString += `  ],\n`;
+    addEmptyLines(1);
+  }
+  modulesString += '});\n';
+  addEmptyLines(1);
+
+  bundleSource += modulesString;
 
   // 5. Inject HMR Client Runtime if requested
   if (hmr) {
@@ -364,11 +451,32 @@ export function generateBundle(graph, options = {}) {
 })();
 `;
     bundleSource += hmrClient;
+    addEmptyLines(hmrClient.split('\n').length);
   }
+
+  let finalLineMappings = lineMappings;
 
   // 6. Minify if requested
   if (minify) {
-    bundleSource = minifyCode(bundleSource);
+    const minified = minifyCode(bundleSource, { sourcemap, initialLineMappings: lineMappings });
+    if (typeof minified === 'object' && minified.code) {
+      bundleSource = minified.code;
+      finalLineMappings = minified.lineMappings;
+    } else {
+      bundleSource = minified;
+    }
+  }
+
+  // 7. Generate source map if requested
+  let sourceMap = null;
+  if (sourcemap) {
+    const mapFileName = path.basename(outFile) + '.map';
+    sourceMap = generateSourceMap({
+      file: path.basename(outFile),
+      sources,
+      lineMappings: finalLineMappings
+    });
+    bundleSource += `\n//# sourceMappingURL=${mapFileName}\n`;
   }
 
   const minifiedSize = Buffer.byteLength(bundleSource, 'utf8');
@@ -387,6 +495,7 @@ export function generateBundle(graph, options = {}) {
 
   return {
     code: bundleSource,
+    sourceMap,
     size: minifiedSize,
     hash,
     modulesCount: graph.length,
@@ -405,11 +514,18 @@ export function bundleToFile(graph, outPath, options = {}) {
     fs.mkdirSync(outDir, { recursive: true });
   }
 
-  const result = generateBundle(graph, options);
+  const result = generateBundle(graph, { ...options, outFile: resolvedOut });
   fs.writeFileSync(resolvedOut, result.code, 'utf8');
+
+  let mapPath = null;
+  if (options.sourcemap && result.sourceMap) {
+    mapPath = `${resolvedOut}.map`;
+    fs.writeFileSync(mapPath, JSON.stringify(result.sourceMap, null, 2), 'utf8');
+  }
 
   return {
     ...result,
-    outputPath: resolvedOut
+    outputPath: resolvedOut,
+    mapPath
   };
 }

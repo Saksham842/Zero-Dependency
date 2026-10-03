@@ -19,7 +19,7 @@ const STDLIB_DOC_PATH = path.join(ROOT_DIR, 'STDLIB.md');
 export function compileSingleFile() {
   logger.build(`Compiling standalone single-file distribution to ${colors.cyan('zeropack.js')}...`);
 
-  const modules = ['cli.js', 'parser.js', 'bundler.js', 'dashboard.js', 'server.js'];
+  const modules = ['cli.js', 'errors.js', 'sourcemap.js', 'parser.js', 'bundler.js', 'dashboard.js', 'server.js'];
   const processedContents = [];
 
   // Track Node built-in imports to hoist them at the top
@@ -29,6 +29,7 @@ export function compileSingleFile() {
     "import process from 'node:process';",
     "import http from 'node:http';",
     "import crypto from 'node:crypto';",
+    "import * as nodeModule from 'node:module';",
     "import { parseArgs } from 'node:util';",
     "import { StringDecoder } from 'node:string_decoder';"
   ]);

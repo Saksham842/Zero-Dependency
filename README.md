@@ -58,10 +58,13 @@ Every industry-standard npm library has been replaced with a native Node.js core
 
 | Standard NPM Package | ZeroPack Native Replacement | Core Node.js API | Purpose |
 | :--- | :--- | :--- | :--- |
-| **`commander`** / **`yargs`** | Native CLI Parser | `node:util.parseArgs` | Strict flag parsing (`--entry`, `--out`, `--serve`, etc.) |
+| **`commander`** / **`yargs`** | Native CLI Parser | `node:util.parseArgs` | Strict flag parsing (`--entry`, `--out`, `--serve`, `--sourcemap`, etc.) |
 | **`chalk`** / **`picocolors`** | ANSI Color Formatter | Raw `\x1b[...m` Escape Codes | Terminal coloring, logging banners, and build reports |
 | **`dotenv`** | Native `.env` Reader | `node:fs` + Line Stream Parser | Parses `.env` variables into `process.env` |
 | **`esbuild`** / **`webpack`** | AST Regex & Dependency Resolver | `node:fs`, `node:path`, `node:crypto` | Dependency graph, circular detection & IIFE bundling |
+| **`resolve`** / **`enhanced-resolve`** | Native Node.js Resolution Engine | `node:fs` + `node:path` | Bare `node_modules` resolution (`exports`, `module`, `main`) |
+| **`source-map`** / **`vlq`** | Native Base64 VLQ Generator | Custom v3 VLQ Math Encoder | Source map v3 generation for minified & unminified builds |
+| **`typescript`** / **`ts-node`** | Native Type Stripping Engine | `node:module` (`stripTypeScriptTypes`) | Direct `.ts` compilation on Node >= 22.6 with zero libraries |
 | **`terser`** / **`uglify-js`** | State-Machine Minifier | `node:string_decoder` | Comment stripping, whitespace trimming & string preservation |
 | **`chokidar`** | Native File Watcher | `node:fs.watch` | 100ms debounced recursive file watcher |
 | **`ws`** / **`socket.io`** | Native RFC 6455 Server | `node:http` + `node:crypto` | HTTP 101 upgrade handshake, frame encoder/decoder |
@@ -74,6 +77,9 @@ Every industry-standard npm library has been replaced with a native Node.js core
 
 - 🛡️ **0 Third-Party Dependencies:** 100% compliant with strict zero-dependency competition constraints.
 - ⚡ **Blazing Fast Bundling:** Sub-30ms cold builds directly on Node.js.
+- 🗺️ **Source Maps v3:** Hand-crafted Base64 VLQ encoder generating compliant `.map` files for both unminified and minified outputs.
+- 📦 **node_modules Resolution:** Full bare-import resolution following Node's algorithm (`exports`, `module`, `main`, and index fallbacks) with structured `BuildError` diagnostics.
+- 🔷 **Native TypeScript Support:** Automatic `.ts` type stripping using native `node:module` built-ins.
 - 🔄 **Native RFC 6455 WebSocket HMR:** Real-time live reloading without external WebSocket engines.
 - 🗜️ **Robust State-Machine Minifier:** Lexer preserving ASI (Automatic Semicolon Insertion), operator spacing (`+ +`, `- -`), regex literals vs. division, and nested template literals with `${}`.
 - 🧩 **Comprehensive ESM $\to$ CJS Transforms:** Full support for destructured exports, namespace re-exports (`export * as ns`, `export *`), import attributes (`with`/`assert`), unpolluted default exports, and live getter bindings.
@@ -100,7 +106,10 @@ node src/cli.js --help
 # Basic bundle
 node src/cli.js --entry src/index.js --out dist/bundle.js
 
-# Production minified bundle
+# Production minified bundle with source maps
+node src/cli.js --entry src/index.js --out dist/bundle.js --minify --sourcemap
+
+# Quick npm shortcut
 npm run build
 ```
 
@@ -126,12 +135,13 @@ OPTIONS:
   --serve            Start native HTTP static dev server & RFC 6455 WebSocket HMR
   --port <number>    Port for the dev server (default: 3000)
   --minify           Minify output bundle (removes comments & whitespace)
+  --sourcemap        Generate Source Map v3 (.map file)
   --env <path>       Custom path to .env file (default: .env)
   --help, -h         Display this help message
 
 EXAMPLES:
-  # Minified production build
-  node src/cli.js --entry src/index.js --out dist/bundle.js --minify
+  # Minified production build with source maps
+  node src/cli.js --entry src/index.js --out dist/bundle.js --minify --sourcemap
 
   # Development server on custom port
   node src/cli.js --entry src/index.js --serve --port 8080

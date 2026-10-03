@@ -4,7 +4,7 @@
  * Zero-Dependency JavaScript Bundler, Minifier & RFC 6455 HMR Dev Server
  * Built exclusively with Node.js Native Core Libraries.
  * 
- * Auto-generated on: 2026-10-03T21:56:05.222Z
+ * Auto-generated on: 2026-10-03T22:15:54.583Z
  */
 
 import fs from 'node:fs';
@@ -12,6 +12,7 @@ import path from 'node:path';
 import process from 'node:process';
 import http from 'node:http';
 import crypto from 'node:crypto';
+import * as nodeModule from 'node:module';
 import { parseArgs } from 'node:util';
 import { StringDecoder } from 'node:string_decoder';
 
@@ -192,6 +193,10 @@ export function parseCliArgs(args = process.argv.slice(2)) {
       type: 'boolean',
       default: false
     },
+    sourcemap: {
+      type: 'boolean',
+      default: false
+    },
     env: {
       type: 'string',
       default: '.env'
@@ -223,6 +228,7 @@ export function parseCliArgs(args = process.argv.slice(2)) {
       serve: Boolean(values.serve),
       port: parseInt(values.port, 10) || 3000,
       minify: Boolean(values.minify),
+      sourcemap: Boolean(values.sourcemap),
       env: values.env,
       help: Boolean(values.help),
       positionals
@@ -261,17 +267,22 @@ export async function runCli(args = process.argv.slice(2)) {
   logger.build(`Target Entry: ${colors.cyan(config.entry)}`);
   logger.build(`Output Path:  ${colors.cyan(config.out)}`);
   logger.build(`Minification: ${config.minify ? colors.green('ENABLED') : colors.gray('DISABLED')}`);
+  logger.build(`Source Map:   ${config.sourcemap ? colors.green('ENABLED') : colors.gray('DISABLED')}`);
 
   try {
     const graph = buildDependencyGraph(config.entry);
     const result = bundleToFile(graph, config.out, {
       minify: config.minify,
+      sourcemap: config.sourcemap,
       entryPath: config.entry
     });
 
     const elapsed = (performance.now() - startTime).toFixed(2);
     logger.success(`Bundle generated in ${colors.bold(elapsed + 'ms')} (${colors.cyan(result.size + ' bytes')}) [${colors.green(result.stats.compressionRatio + ' saved')}]`);
     logger.info(`SHA-256 Hash: ${colors.gray(result.hash)}`);
+    if (result.mapPath) {
+      logger.info(`Source Map:   ${colors.cyan(result.mapPath)}`);
+    }
 
     if (config.serve) {
       
@@ -280,12 +291,17 @@ export async function runCli(args = process.argv.slice(2)) {
         entry: config.entry,
         out: config.out,
         minify: config.minify,
+        sourcemap: config.sourcemap,
         rootDir: process.cwd(),
         stats: result.stats
       });
     }
   } catch (error) {
-    logger.error(`Build failed: ${error.message}`);
+    if (typeof error.format === 'function') {
+      logger.raw('\n' + error.format() + '\n');
+    } else {
+      logger.error(`Build failed: ${error.message}`);
+    }
     if (process.env.DEBUG) {
       console.error(error.stack);
     }
@@ -296,22 +312,158 @@ export async function runCli(args = process.argv.slice(2)) {
 }
 
 // ==========================================
-// Module: parser.js
+// Module: errors.js
 // ==========================================
 /**
- * Resolves a module specifier relative to the importing file.
- * Checks for extensions (.js, .mjs, .cjs, .ts, .json) and directory indexes.
+ * Structured BuildError for compiler, module resolution, and syntax failures.
+ * Captures file, line, column, offending source line, and actionable suggestions.
  */
-export function resolveModulePath(fromFile, specifier, rootDir = process.cwd()) {
-  let candidate = '';
-
-  if (specifier.startsWith('.') || specifier.startsWith('/')) {
-    candidate = path.resolve(path.dirname(fromFile), specifier);
-  } else {
-    // Treat bare specifier as relative to root or node_modules-like structure
-    candidate = path.resolve(rootDir, specifier);
+export class BuildError extends Error {
+  constructor(message, { file = null, line = null, column = null, sourceLine = null, suggestion = null } = {}) {
+    super(message);
+    this.name = 'BuildError';
+    this.file = file;
+    this.line = line;
+    this.column = column;
+    this.sourceLine = sourceLine;
+    this.suggestion = suggestion;
   }
 
+  format() {
+    let out = `${colors.red(colors.bold('BuildError:'))} ${this.message}`;
+    if (this.file) {
+      const loc = this.line ? `:${this.line}${this.column ? `:${this.column}` : ''}` : '';
+      out += `\n  ${colors.dim('at')} ${colors.cyan(this.file + loc)}`;
+    }
+    if (this.sourceLine) {
+      out += `\n\n  ${colors.gray(this.line ? `${this.line} |` : '>')} ${this.sourceLine}`;
+      if (this.column) {
+        out += `\n    ${' '.repeat(String(this.line || '').length + 2)}${colors.red('^')}`;
+      }
+    }
+    if (this.suggestion) {
+      out += `\n\n  ${colors.yellow(colors.bold('Suggestion:'))} ${this.suggestion}`;
+    }
+    return out;
+  }
+}
+
+// ==========================================
+// Module: sourcemap.js
+// ==========================================
+const B64_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+
+/**
+ * Encodes a signed integer to Base64 VLQ (Variable-Length Quantity).
+ * Follows the Source Map Revision 3 specification.
+ *
+ * @param {number} value
+ * @returns {string}
+ */
+export function encodeVlq(value) {
+  let vlq = value < 0 ? ((-value) << 1) | 1 : value << 1;
+  let encoded = '';
+  do {
+    let digit = vlq & 31;
+    vlq >>>= 5;
+    if (vlq > 0) {
+      digit |= 32; // continuation bit set
+    }
+    encoded += B64_CHARS[digit];
+  } while (vlq > 0);
+  return encoded;
+}
+
+/**
+ * Decodes a Base64 VLQ sequence into an array of integers (useful for test assertions).
+ *
+ * @param {string} str
+ * @returns {number[]}
+ */
+export function decodeVlq(str) {
+  const result = [];
+  let shift = 0;
+  let value = 0;
+
+  for (let i = 0; i < str.length; i++) {
+    const char = str[i];
+    const index = B64_CHARS.indexOf(char);
+    if (index === -1) continue;
+
+    const hasContinuation = (index & 32) !== 0;
+    const digit = index & 31;
+    value += digit << shift;
+
+    if (hasContinuation) {
+      shift += 5;
+    } else {
+      const isNegative = (value & 1) === 1;
+      const finalValue = value >>> 1;
+      result.push(isNegative ? -finalValue : finalValue);
+      value = 0;
+      shift = 0;
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Generates a standard Source Map v3 JSON object with delta-encoded mappings.
+ *
+ * @param {Object} options
+ * @param {string} options.file Output bundle filename
+ * @param {Array<{ path: string, content: string }>} options.sources Original source files
+ * @param {Array<Array<[number, number, number, number]>>} options.lineMappings
+ *   Per generated line: array of segments [genCol, sourceIdx, origLine, origCol]
+ * @returns {Object} v3 SourceMap object
+ */
+export function generateSourceMap({ file, sources, lineMappings }) {
+  let prevSourceIdx = 0;
+  let prevOrigLine = 0;
+  let prevOrigCol = 0;
+
+  const mappings = lineMappings.map((segments) => {
+    let prevGenCol = 0;
+    return segments.map(([genCol, sourceIdx, origLine, origCol]) => {
+      const segGenCol = genCol - prevGenCol;
+      const segSourceIdx = sourceIdx - prevSourceIdx;
+      const segOrigLine = origLine - prevOrigLine;
+      const segOrigCol = origCol - prevOrigCol;
+
+      prevGenCol = genCol;
+      prevSourceIdx = sourceIdx;
+      prevOrigLine = origLine;
+      prevOrigCol = origCol;
+
+      return (
+        encodeVlq(segGenCol) +
+        encodeVlq(segSourceIdx) +
+        encodeVlq(segOrigLine) +
+        encodeVlq(segOrigCol)
+      );
+    }).join(',');
+  }).join(';');
+
+  return {
+    version: 3,
+    file,
+    sources: sources.map((s) => s.path.replace(/\\/g, '/')),
+    sourcesContent: sources.map((s) => s.content),
+    names: [],
+    mappings
+  };
+}
+
+// ==========================================
+// Module: parser.js
+// ==========================================
+const stripTypeScriptTypes = nodeModule.stripTypeScriptTypes || nodeModule.default?.stripTypeScriptTypes;
+
+/**
+ * Resolves a file candidate checking extensions and index files.
+ */
+export function resolveFilePath(candidate, fromFile, specifier) {
   // 1. Exact file match
   if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
     return candidate;
@@ -336,7 +488,169 @@ export function resolveModulePath(fromFile, specifier, rootDir = process.cwd()) 
     }
   }
 
-  throw new Error(`Cannot resolve module '${specifier}' requested by '${fromFile}'`);
+  throw new BuildError(`Cannot resolve module '${specifier}' requested by '${fromFile}'`, {
+    file: fromFile,
+    suggestion: `Check file path and extension. Tried: ${extensions.join(', ')}`
+  });
+}
+
+/**
+ * Resolves bare specifiers from node_modules following Node.js resolution algorithm.
+ * Inspects package.json "exports", "module", "main", and index fallback.
+ */
+export function resolveNodeModule(fromFile, specifier, rootDir = process.cwd()) {
+  let pkgName = '';
+  let subpath = '.';
+
+  if (specifier.startsWith('@')) {
+    const parts = specifier.split('/');
+    if (parts.length < 2) {
+      throw new BuildError(`Invalid scoped package specifier: '${specifier}'`, {
+        file: fromFile,
+        suggestion: `Scoped packages must follow the format '@scope/package'.`
+      });
+    }
+    pkgName = `${parts[0]}/${parts[1]}`;
+    if (parts.length > 2) {
+      subpath = './' + parts.slice(2).join('/');
+    }
+  } else {
+    const parts = specifier.split('/');
+    pkgName = parts[0];
+    if (parts.length > 1) {
+      subpath = './' + parts.slice(1).join('/');
+    }
+  }
+
+  // Traverse upwards from path.dirname(fromFile) to rootDir searching for node_modules/pkgName
+  let currentDir = path.dirname(fromFile);
+  let pkgDir = null;
+
+  while (true) {
+    const candidate = path.join(currentDir, 'node_modules', pkgName);
+    if (fs.existsSync(candidate) && fs.statSync(candidate).isDirectory()) {
+      pkgDir = candidate;
+      break;
+    }
+    const parent = path.dirname(currentDir);
+    if (parent === currentDir) break;
+    currentDir = parent;
+  }
+
+  // Fallback to checking rootDir/node_modules if not found in parent traversal
+  if (!pkgDir) {
+    const rootCandidate = path.join(rootDir, 'node_modules', pkgName);
+    if (fs.existsSync(rootCandidate) && fs.statSync(rootCandidate).isDirectory()) {
+      pkgDir = rootCandidate;
+    }
+  }
+
+  if (!pkgDir) {
+    throw new BuildError(`Cannot find package '${pkgName}' imported from '${path.relative(rootDir, fromFile).replace(/\\/g, '/')}'`, {
+      file: fromFile,
+      suggestion: `Run 'npm install ${pkgName}' or verify that the package exists in node_modules.`
+    });
+  }
+
+  const pkgJsonPath = path.join(pkgDir, 'package.json');
+  let pkgJson = null;
+  if (fs.existsSync(pkgJsonPath)) {
+    try {
+      pkgJson = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8'));
+    } catch (e) {
+      throw new BuildError(`Failed to parse '${pkgJsonPath}': ${e.message}`, {
+        file: pkgJsonPath,
+        suggestion: `Verify package.json format in '${pkgDir}'.`
+      });
+    }
+  }
+
+  function resolveExportCondition(target) {
+    if (typeof target === 'string') return target;
+    if (typeof target === 'object' && target !== null) {
+      const conditions = ['import', 'module', 'browser', 'default', 'node', 'require'];
+      for (const cond of conditions) {
+        if (target[cond]) {
+          const res = resolveExportCondition(target[cond]);
+          if (res) return res;
+        }
+      }
+    }
+    return null;
+  }
+
+  // 1. Check package.json "exports" field
+  if (pkgJson && pkgJson.exports) {
+    const exp = pkgJson.exports;
+    let target = null;
+
+    if (typeof exp === 'string' && (subpath === '.' || subpath === './')) {
+      target = exp;
+    } else if (typeof exp === 'object' && exp !== null) {
+      if (exp[subpath]) {
+        target = resolveExportCondition(exp[subpath]);
+      } else if (subpath === '.' || subpath === './') {
+        if (exp['.']) {
+          target = resolveExportCondition(exp['.']);
+        } else {
+          target = resolveExportCondition(exp);
+        }
+      }
+    }
+
+    if (target) {
+      const candidate = path.resolve(pkgDir, target);
+      if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
+        return candidate;
+      }
+      try {
+        return resolveFilePath(candidate, fromFile, specifier);
+      } catch (_) {}
+    }
+  }
+
+  // 2. Check "module" (ESM priority) then "main"
+  if (subpath === '.' || subpath === './') {
+    if (pkgJson) {
+      const mainField = pkgJson.module || pkgJson.main;
+      if (mainField) {
+        const candidate = path.resolve(pkgDir, mainField);
+        try {
+          return resolveFilePath(candidate, fromFile, specifier);
+        } catch (_) {}
+      }
+    }
+    // 3. Fallback to index.js, index.mjs, index.cjs
+    try {
+      return resolveFilePath(path.join(pkgDir, 'index'), fromFile, specifier);
+    } catch (_) {}
+  } else {
+    // 4. Directory or subpath import
+    const candidate = path.resolve(pkgDir, subpath);
+    try {
+      return resolveFilePath(candidate, fromFile, specifier);
+    } catch (_) {}
+  }
+
+  throw new BuildError(`Cannot resolve entry for package '${specifier}' in '${pkgDir}'`, {
+    file: fromFile,
+    suggestion: `Check "exports" or "main" in '${path.join(pkgDir, 'package.json')}'.`
+  });
+}
+
+/**
+ * Resolves a module specifier relative to the importing file or from node_modules.
+ * Checks for extensions (.js, .mjs, .cjs, .ts, .json) and directory indexes.
+ */
+export function resolveModulePath(fromFile, specifier, rootDir = process.cwd()) {
+  // Relative or absolute path
+  if (specifier.startsWith('.') || specifier.startsWith('/') || /^[a-zA-Z]:[\\/]/.test(specifier)) {
+    const candidate = path.resolve(path.dirname(fromFile), specifier);
+    return resolveFilePath(candidate, fromFile, specifier);
+  }
+
+  // Bare specifier: resolve from node_modules following Node algorithm
+  return resolveNodeModule(fromFile, specifier, rootDir);
 }
 
 /**
@@ -373,6 +687,28 @@ export function extractBindingIdentifiers(pattern) {
 export function transformModuleCode(rawCode, filePath) {
   const dependencies = new Set();
   let code = rawCode;
+
+  // Handle TypeScript type stripping where available (.ts, .mts, .cts, .tsx)
+  if (filePath && /\.[cm]?ts[x]?$/.test(filePath)) {
+    if (typeof stripTypeScriptTypes === 'function') {
+      try {
+        code = stripTypeScriptTypes(code);
+      } catch (err) {
+        throw new BuildError(`TypeScript syntax error in '${filePath}': ${err.message}`, {
+          file: filePath,
+          suggestion: `Check TypeScript syntax.`
+        });
+      }
+    } else {
+      throw new BuildError(
+        `Native TypeScript type stripping is not available in Node.js ${process.version}. Requires Node.js >= 22.6.0.`,
+        {
+          file: filePath,
+          suggestion: `Upgrade to Node.js >= 22.6.0 or pre-compile TypeScript files to JavaScript.`
+        }
+      );
+    }
+  }
 
   // If JSON file, wrap as module export
   if (filePath && filePath.endsWith('.json')) {
@@ -606,6 +942,7 @@ export function buildDependencyGraph(entryPath, rootDir = process.cwd()) {
       id,
       filePath: absoluteFilePath,
       relativePath: path.relative(rootDir, absoluteFilePath).replace(/\\/g, '/'),
+      rawCode: rawContent,
       code,
       dependencies,
       mapping: {},
@@ -658,8 +995,10 @@ export function buildDependencyGraph(entryPath, rootDir = process.cwd()) {
  * Pure zero-dependency minifier using string scanner and state machine.
  * Correctly preserves strings ('...', "...", `...`), template literals, and regexes
  * while stripping single-line comments, multi-line comments, and extraneous whitespace.
+ * Optionally tracks source map mappings.
  */
-export function minifyCode(code) {
+export function minifyCode(code, options = {}) {
+  const { sourcemap = false, initialLineMappings = null } = options;
   let output = '';
   let i = 0;
   const len = code.length;
@@ -670,6 +1009,12 @@ export function minifyCode(code) {
 
   let lastSignificantToken = '';
   let hadNewline = false;
+
+  let inLine = 0;
+  let inCol = 0;
+  let outLine = 0;
+  let outCol = 0;
+  const minifiedLineMappings = [[]];
 
   function currentContext() {
     return stack[stack.length - 1];
@@ -699,21 +1044,34 @@ export function minifyCode(code) {
       const nextCanStart = isWordChar(firstChar) || /[(/[{]/.test(firstChar);
       if (prevCanEnd && nextCanStart) {
         output += '\n';
+        outLine++;
+        outCol = 0;
+        if (sourcemap) minifiedLineMappings.push([]);
       }
     }
 
     const updatedLastChar = output.slice(-1);
     if (isWordChar(updatedLastChar) && isWordChar(firstChar)) {
       output += ' ';
+      outCol++;
     } else if (updatedLastChar === '+' && firstChar === '+') {
       output += ' ';
+      outCol++;
     } else if (updatedLastChar === '-' && firstChar === '-') {
       output += ' ';
+      outCol++;
     } else if (updatedLastChar === '/' && firstChar === '/') {
       output += ' ';
+      outCol++;
+    }
+
+    if (sourcemap && initialLineMappings && initialLineMappings[inLine] && initialLineMappings[inLine].length > 0) {
+      const [_, srcIdx, oLine, _origCol] = initialLineMappings[inLine][0];
+      minifiedLineMappings[minifiedLineMappings.length - 1].push([outCol, srcIdx, oLine, inCol]);
     }
 
     output += token;
+    outCol += token.length;
     hadNewline = false;
     lastSignificantToken = token;
   }
@@ -723,15 +1081,24 @@ export function minifyCode(code) {
     const nextChar = i + 1 < len ? code[i + 1] : '';
     const ctx = currentContext();
 
+    if (char === '\n') {
+      inLine++;
+      inCol = 0;
+    } else {
+      inCol++;
+    }
+
     if (ctx === 'TEMPLATE') {
       if (char === '\\') {
         output += char + nextChar;
+        outCol += 2;
         i += 2;
         continue;
       }
       if (char === '`') {
         stack.pop();
         output += char;
+        outCol++;
         lastSignificantToken = '`';
         i++;
         continue;
@@ -740,11 +1107,19 @@ export function minifyCode(code) {
         stack.push('EXPR');
         braceStack.push(1);
         output += '${';
+        outCol += 2;
         i += 2;
         lastSignificantToken = '{';
         continue;
       }
       output += char;
+      if (char === '\n') {
+        outLine++;
+        outCol = 0;
+        if (sourcemap) minifiedLineMappings.push([]);
+      } else {
+        outCol++;
+      }
       i++;
       continue;
     }
@@ -764,7 +1139,11 @@ export function minifyCode(code) {
     if (char === '/' && nextChar === '*') {
       i += 2;
       while (i < len && !(code[i] === '*' && code[i + 1] === '/')) {
-        if (code[i] === '\n') hadNewline = true;
+        if (code[i] === '\n') {
+          hadNewline = true;
+          inLine++;
+          inCol = 0;
+        }
         i++;
       }
       i += 2;
@@ -841,6 +1220,7 @@ export function minifyCode(code) {
           braceStack.pop();
           stack.pop();
           output += '}';
+          outCol++;
           lastSignificantToken = '}';
           i++;
           continue;
@@ -880,6 +1260,13 @@ export function minifyCode(code) {
     i++;
   }
 
+  if (sourcemap) {
+    return {
+      code: output.trim(),
+      lineMappings: minifiedLineMappings
+    };
+  }
+
   return output.trim();
 }
 
@@ -889,7 +1276,12 @@ export function minifyCode(code) {
  */
 export function generateBundle(graph, options = {}) {
   const startTime = Date.now();
-  const { minify = false, hmr = false } = options;
+  const {
+    minify = false,
+    hmr = false,
+    sourcemap = false,
+    outFile = 'dist/bundle.js'
+  } = options;
 
   // 1. Calculate original size and module metrics
   let originalSize = 0;
@@ -910,23 +1302,19 @@ export function generateBundle(graph, options = {}) {
 
   // 2. Sort modules deterministically by relative path for byte-identical reproducible builds
   const sortedGraph = [...graph].sort((a, b) => a.relativePath.localeCompare(b.relativePath));
+  const sources = sortedGraph.map((mod) => ({
+    path: mod.relativePath,
+    content: mod.rawCode || mod.code
+  }));
 
-  // 3. Build modules mapping string
-  let modulesString = '{\n';
-  for (const mod of sortedGraph) {
-    const mappingJson = JSON.stringify(mod.mapping);
-    modulesString += `  ${mod.id}: [\n`;
-    modulesString += `    function(require, module, exports) {\n`;
-    modulesString += `// [ZeroPack Module: ${mod.relativePath}]\n`;
-    modulesString += mod.code + '\n';
-    modulesString += `    },\n`;
-    modulesString += `    ${mappingJson}\n`;
-    modulesString += `  ],\n`;
+  // Track line mappings for source maps
+  const lineMappings = [];
+  function addEmptyLines(count) {
+    for (let c = 0; c < count; c++) lineMappings.push([]);
   }
-  modulesString += '}';
 
-  // 4. Runtime bundle template (Zero-dependency custom require runtime)
-  let bundleSource = `/**
+  // 3. Runtime bundle template header
+  const headerTemplate = `/**
  * Bundled by ZeroPack (Zero-Dependency Bundler)
  */
 (function(modules) {
@@ -976,8 +1364,43 @@ export function generateBundle(graph, options = {}) {
 
   // Load entry module (id: 0)
   return __zeropack_require__(0);
-})(${modulesString});
-`;
+})({`;
+
+  let bundleSource = headerTemplate;
+  addEmptyLines(headerTemplate.split('\n').length - 1);
+
+  // Build modules mapping string
+  let modulesString = '\n';
+  addEmptyLines(1);
+
+  for (let modIdx = 0; modIdx < sortedGraph.length; modIdx++) {
+    const mod = sortedGraph[modIdx];
+    const mappingJson = JSON.stringify(mod.mapping);
+
+    modulesString += `  ${mod.id}: [\n`;
+    addEmptyLines(1);
+    modulesString += `    function(require, module, exports) {\n`;
+    addEmptyLines(1);
+    modulesString += `// [ZeroPack Module: ${mod.relativePath}]\n`;
+    addEmptyLines(1);
+
+    const codeLines = mod.code.split('\n');
+    for (let l = 0; l < codeLines.length; l++) {
+      modulesString += codeLines[l] + '\n';
+      lineMappings.push([[0, modIdx, l, 0]]);
+    }
+
+    modulesString += `    },\n`;
+    addEmptyLines(1);
+    modulesString += `    ${mappingJson}\n`;
+    addEmptyLines(1);
+    modulesString += `  ],\n`;
+    addEmptyLines(1);
+  }
+  modulesString += '});\n';
+  addEmptyLines(1);
+
+  bundleSource += modulesString;
 
   // 5. Inject HMR Client Runtime if requested
   if (hmr) {
@@ -1014,11 +1437,32 @@ export function generateBundle(graph, options = {}) {
 })();
 `;
     bundleSource += hmrClient;
+    addEmptyLines(hmrClient.split('\n').length);
   }
+
+  let finalLineMappings = lineMappings;
 
   // 6. Minify if requested
   if (minify) {
-    bundleSource = minifyCode(bundleSource);
+    const minified = minifyCode(bundleSource, { sourcemap, initialLineMappings: lineMappings });
+    if (typeof minified === 'object' && minified.code) {
+      bundleSource = minified.code;
+      finalLineMappings = minified.lineMappings;
+    } else {
+      bundleSource = minified;
+    }
+  }
+
+  // 7. Generate source map if requested
+  let sourceMap = null;
+  if (sourcemap) {
+    const mapFileName = path.basename(outFile) + '.map';
+    sourceMap = generateSourceMap({
+      file: path.basename(outFile),
+      sources,
+      lineMappings: finalLineMappings
+    });
+    bundleSource += `\n//# sourceMappingURL=${mapFileName}\n`;
   }
 
   const minifiedSize = Buffer.byteLength(bundleSource, 'utf8');
@@ -1037,6 +1481,7 @@ export function generateBundle(graph, options = {}) {
 
   return {
     code: bundleSource,
+    sourceMap,
     size: minifiedSize,
     hash,
     modulesCount: graph.length,
@@ -1055,12 +1500,19 @@ export function bundleToFile(graph, outPath, options = {}) {
     fs.mkdirSync(outDir, { recursive: true });
   }
 
-  const result = generateBundle(graph, options);
+  const result = generateBundle(graph, { ...options, outFile: resolvedOut });
   fs.writeFileSync(resolvedOut, result.code, 'utf8');
+
+  let mapPath = null;
+  if (options.sourcemap && result.sourceMap) {
+    mapPath = `${resolvedOut}.map`;
+    fs.writeFileSync(mapPath, JSON.stringify(result.sourceMap, null, 2), 'utf8');
+  }
 
   return {
     ...result,
-    outputPath: resolvedOut
+    outputPath: resolvedOut,
+    mapPath
   };
 }
 

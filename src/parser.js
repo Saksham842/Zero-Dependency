@@ -1,22 +1,17 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import process from 'node:process';
+import * as nodeModule from 'node:module';
 import { logger, colors } from './cli.js';
+import { BuildError } from './errors.js';
+
+const stripTypeScriptTypes = nodeModule.stripTypeScriptTypes || nodeModule.default?.stripTypeScriptTypes;
 
 /**
- * Resolves a module specifier relative to the importing file.
- * Checks for extensions (.js, .mjs, .cjs, .ts, .json) and directory indexes.
+ * Resolves a file candidate checking extensions and index files.
  */
-export function resolveModulePath(fromFile, specifier, rootDir = process.cwd()) {
-  let candidate = '';
-
-  if (specifier.startsWith('.') || specifier.startsWith('/')) {
-    candidate = path.resolve(path.dirname(fromFile), specifier);
-  } else {
-    // Treat bare specifier as relative to root or node_modules-like structure
-    candidate = path.resolve(rootDir, specifier);
-  }
-
+export function resolveFilePath(candidate, fromFile, specifier) {
   // 1. Exact file match
   if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
     return candidate;
@@ -41,7 +36,169 @@ export function resolveModulePath(fromFile, specifier, rootDir = process.cwd()) 
     }
   }
 
-  throw new Error(`Cannot resolve module '${specifier}' requested by '${fromFile}'`);
+  throw new BuildError(`Cannot resolve module '${specifier}' requested by '${fromFile}'`, {
+    file: fromFile,
+    suggestion: `Check file path and extension. Tried: ${extensions.join(', ')}`
+  });
+}
+
+/**
+ * Resolves bare specifiers from node_modules following Node.js resolution algorithm.
+ * Inspects package.json "exports", "module", "main", and index fallback.
+ */
+export function resolveNodeModule(fromFile, specifier, rootDir = process.cwd()) {
+  let pkgName = '';
+  let subpath = '.';
+
+  if (specifier.startsWith('@')) {
+    const parts = specifier.split('/');
+    if (parts.length < 2) {
+      throw new BuildError(`Invalid scoped package specifier: '${specifier}'`, {
+        file: fromFile,
+        suggestion: `Scoped packages must follow the format '@scope/package'.`
+      });
+    }
+    pkgName = `${parts[0]}/${parts[1]}`;
+    if (parts.length > 2) {
+      subpath = './' + parts.slice(2).join('/');
+    }
+  } else {
+    const parts = specifier.split('/');
+    pkgName = parts[0];
+    if (parts.length > 1) {
+      subpath = './' + parts.slice(1).join('/');
+    }
+  }
+
+  // Traverse upwards from path.dirname(fromFile) to rootDir searching for node_modules/pkgName
+  let currentDir = path.dirname(fromFile);
+  let pkgDir = null;
+
+  while (true) {
+    const candidate = path.join(currentDir, 'node_modules', pkgName);
+    if (fs.existsSync(candidate) && fs.statSync(candidate).isDirectory()) {
+      pkgDir = candidate;
+      break;
+    }
+    const parent = path.dirname(currentDir);
+    if (parent === currentDir) break;
+    currentDir = parent;
+  }
+
+  // Fallback to checking rootDir/node_modules if not found in parent traversal
+  if (!pkgDir) {
+    const rootCandidate = path.join(rootDir, 'node_modules', pkgName);
+    if (fs.existsSync(rootCandidate) && fs.statSync(rootCandidate).isDirectory()) {
+      pkgDir = rootCandidate;
+    }
+  }
+
+  if (!pkgDir) {
+    throw new BuildError(`Cannot find package '${pkgName}' imported from '${path.relative(rootDir, fromFile).replace(/\\/g, '/')}'`, {
+      file: fromFile,
+      suggestion: `Run 'npm install ${pkgName}' or verify that the package exists in node_modules.`
+    });
+  }
+
+  const pkgJsonPath = path.join(pkgDir, 'package.json');
+  let pkgJson = null;
+  if (fs.existsSync(pkgJsonPath)) {
+    try {
+      pkgJson = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8'));
+    } catch (e) {
+      throw new BuildError(`Failed to parse '${pkgJsonPath}': ${e.message}`, {
+        file: pkgJsonPath,
+        suggestion: `Verify package.json format in '${pkgDir}'.`
+      });
+    }
+  }
+
+  function resolveExportCondition(target) {
+    if (typeof target === 'string') return target;
+    if (typeof target === 'object' && target !== null) {
+      const conditions = ['import', 'module', 'browser', 'default', 'node', 'require'];
+      for (const cond of conditions) {
+        if (target[cond]) {
+          const res = resolveExportCondition(target[cond]);
+          if (res) return res;
+        }
+      }
+    }
+    return null;
+  }
+
+  // 1. Check package.json "exports" field
+  if (pkgJson && pkgJson.exports) {
+    const exp = pkgJson.exports;
+    let target = null;
+
+    if (typeof exp === 'string' && (subpath === '.' || subpath === './')) {
+      target = exp;
+    } else if (typeof exp === 'object' && exp !== null) {
+      if (exp[subpath]) {
+        target = resolveExportCondition(exp[subpath]);
+      } else if (subpath === '.' || subpath === './') {
+        if (exp['.']) {
+          target = resolveExportCondition(exp['.']);
+        } else {
+          target = resolveExportCondition(exp);
+        }
+      }
+    }
+
+    if (target) {
+      const candidate = path.resolve(pkgDir, target);
+      if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
+        return candidate;
+      }
+      try {
+        return resolveFilePath(candidate, fromFile, specifier);
+      } catch (_) {}
+    }
+  }
+
+  // 2. Check "module" (ESM priority) then "main"
+  if (subpath === '.' || subpath === './') {
+    if (pkgJson) {
+      const mainField = pkgJson.module || pkgJson.main;
+      if (mainField) {
+        const candidate = path.resolve(pkgDir, mainField);
+        try {
+          return resolveFilePath(candidate, fromFile, specifier);
+        } catch (_) {}
+      }
+    }
+    // 3. Fallback to index.js, index.mjs, index.cjs
+    try {
+      return resolveFilePath(path.join(pkgDir, 'index'), fromFile, specifier);
+    } catch (_) {}
+  } else {
+    // 4. Directory or subpath import
+    const candidate = path.resolve(pkgDir, subpath);
+    try {
+      return resolveFilePath(candidate, fromFile, specifier);
+    } catch (_) {}
+  }
+
+  throw new BuildError(`Cannot resolve entry for package '${specifier}' in '${pkgDir}'`, {
+    file: fromFile,
+    suggestion: `Check "exports" or "main" in '${path.join(pkgDir, 'package.json')}'.`
+  });
+}
+
+/**
+ * Resolves a module specifier relative to the importing file or from node_modules.
+ * Checks for extensions (.js, .mjs, .cjs, .ts, .json) and directory indexes.
+ */
+export function resolveModulePath(fromFile, specifier, rootDir = process.cwd()) {
+  // Relative or absolute path
+  if (specifier.startsWith('.') || specifier.startsWith('/') || /^[a-zA-Z]:[\\/]/.test(specifier)) {
+    const candidate = path.resolve(path.dirname(fromFile), specifier);
+    return resolveFilePath(candidate, fromFile, specifier);
+  }
+
+  // Bare specifier: resolve from node_modules following Node algorithm
+  return resolveNodeModule(fromFile, specifier, rootDir);
 }
 
 /**
@@ -78,6 +235,28 @@ export function extractBindingIdentifiers(pattern) {
 export function transformModuleCode(rawCode, filePath) {
   const dependencies = new Set();
   let code = rawCode;
+
+  // Handle TypeScript type stripping where available (.ts, .mts, .cts, .tsx)
+  if (filePath && /\.[cm]?ts[x]?$/.test(filePath)) {
+    if (typeof stripTypeScriptTypes === 'function') {
+      try {
+        code = stripTypeScriptTypes(code);
+      } catch (err) {
+        throw new BuildError(`TypeScript syntax error in '${filePath}': ${err.message}`, {
+          file: filePath,
+          suggestion: `Check TypeScript syntax.`
+        });
+      }
+    } else {
+      throw new BuildError(
+        `Native TypeScript type stripping is not available in Node.js ${process.version}. Requires Node.js >= 22.6.0.`,
+        {
+          file: filePath,
+          suggestion: `Upgrade to Node.js >= 22.6.0 or pre-compile TypeScript files to JavaScript.`
+        }
+      );
+    }
+  }
 
   // If JSON file, wrap as module export
   if (filePath && filePath.endsWith('.json')) {
@@ -311,6 +490,7 @@ export function buildDependencyGraph(entryPath, rootDir = process.cwd()) {
       id,
       filePath: absoluteFilePath,
       relativePath: path.relative(rootDir, absoluteFilePath).replace(/\\/g, '/'),
+      rawCode: rawContent,
       code,
       dependencies,
       mapping: {},
