@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import zlib from 'node:zlib';
 import { StringDecoder } from 'node:string_decoder';
 import { logger, colors } from './cli.js';
 import { generateSourceMap } from './sourcemap.js';
@@ -476,11 +477,15 @@ export function generateBundle(graph, options = {}) {
 
   for (const mod of graph) {
     const modBytes = Buffer.byteLength(mod.code || '', 'utf8');
+    const modGzip = zlib.gzipSync(Buffer.from(mod.code || '', 'utf8')).length;
     originalSize += modBytes;
     moduleStats.push({
       id: mod.id,
       filePath: mod.relativePath || mod.filePath,
-      size: modBytes
+      size: modBytes,
+      gzipSize: modGzip,
+      dependencies: Object.keys(mod.mapping || {}),
+      mapping: mod.mapping || {}
     });
   }
 
@@ -658,6 +663,7 @@ export function generateBundle(graph, options = {}) {
   }
 
   const minifiedSize = Buffer.byteLength(bundleSource, 'utf8');
+  const gzipSize = zlib.gzipSync(Buffer.from(bundleSource, 'utf8')).length;
   const buildTimeMs = Math.max(1, Date.now() - startTime);
   const hash = crypto.createHash('sha256').update(bundleSource).digest('hex');
 
@@ -665,9 +671,27 @@ export function generateBundle(graph, options = {}) {
     moduleCount: graph.length,
     originalSize,
     minifiedSize,
+    gzipSize,
     buildTimeMs,
     compressionRatio: originalSize > 0 ? (((originalSize - minifiedSize) / originalSize) * 100).toFixed(1) + '%' : '0%',
+    gzipRatio: minifiedSize > 0 ? (((minifiedSize - gzipSize) / minifiedSize) * 100).toFixed(1) + '%' : '0%',
     modules: moduleStats,
+    graph: {
+      nodes: moduleStats.map(m => ({
+        id: m.id,
+        label: path.basename(m.filePath),
+        path: m.filePath,
+        size: m.size,
+        gzipSize: m.gzipSize
+      })),
+      links: sortedGraph.flatMap(m =>
+        Object.entries(m.mapping || {}).map(([spec, targetId]) => ({
+          source: m.id,
+          target: targetId,
+          specifier: spec
+        }))
+      )
+    },
     lastBuildTimestamp: new Date().toLocaleTimeString()
   };
 

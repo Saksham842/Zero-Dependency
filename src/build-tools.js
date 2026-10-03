@@ -29,6 +29,7 @@ export function compileSingleFile() {
     "import process from 'node:process';",
     "import http from 'node:http';",
     "import crypto from 'node:crypto';",
+    "import zlib from 'node:zlib';",
     "import net from 'node:net';",
     "import { exec } from 'node:child_process';",
     "import * as nodeModule from 'node:module';",

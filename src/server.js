@@ -208,6 +208,19 @@ export async function startDevServer(options = {}) {
 
   let currentStats = initialStats;
   const activeSockets = new Set();
+  const buildHistory = [];
+  const logHistory = [];
+
+  function addLog(level, msg) {
+    const item = {
+      timestamp: new Date().toLocaleTimeString(),
+      level,
+      message: msg
+    };
+    logHistory.unshift(item);
+    if (logHistory.length > 80) logHistory.pop();
+    broadcast({ type: 'log', ...item });
+  }
 
   // Helper to broadcast WebSocket message to all connected clients
   function broadcast(data) {
@@ -224,15 +237,48 @@ export async function startDevServer(options = {}) {
   }
 
   // Initial / Rebuild compilation
-  function compile() {
+  function compile(changedFile = null) {
     try {
       const graph = buildDependencyGraph(entry, rootDir);
       const result = bundleToFile(graph, out, { minify, sourcemap, define, hmr: true });
       currentStats = result.stats;
       logger.hmr(`Rebuilt bundle: ${colors.green(result.size + ' bytes')} (${colors.gray(result.hash.slice(0, 10))})`);
+      addLog('build', `Bundle generated: ${result.size} bytes (${result.stats.buildTimeMs}ms)`);
+      buildHistory.unshift({
+        id: Date.now(),
+        timestamp: new Date().toLocaleTimeString(),
+        timeMs: result.stats.buildTimeMs,
+        size: result.size,
+        gzipSize: result.stats.gzipSize,
+        status: 'success',
+        file: changedFile || entry
+      });
+      if (buildHistory.length > 50) buildHistory.pop();
       return result;
     } catch (err) {
       logger.error(`Rebuild error: ${err.message}`);
+      addLog('error', `Build failed: ${err.message}`);
+      buildHistory.unshift({
+        id: Date.now(),
+        timestamp: new Date().toLocaleTimeString(),
+        status: 'error',
+        error: err.message,
+        file: err.file || changedFile || entry
+      });
+      if (buildHistory.length > 50) buildHistory.pop();
+
+      // Broadcast error to connected clients for full-screen overlay
+      broadcast({
+        type: 'error',
+        error: {
+          message: err.message,
+          file: err.file || changedFile || entry,
+          line: err.line || 1,
+          column: err.column || 1,
+          snippet: err.codeSnippet || (err.frame ? err.frame : ''),
+          suggestion: err.suggestion || null
+        }
+      });
       return null;
     }
   }
@@ -249,11 +295,88 @@ export async function startDevServer(options = {}) {
 (function() {
   var protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   var ws = new WebSocket(protocol + '//' + window.location.host + '/__zeropack_hmr');
-  ws.onopen = function() { console.log('[ZeroPack DevServer] Connected to live reload'); };
+  var overlayEl = null;
+
+  function showOverlay(err) {
+    if (!overlayEl) {
+      overlayEl = document.createElement('div');
+      overlayEl.id = '__zeropack_error_overlay';
+      overlayEl.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(10,13,20,0.96);color:#f3f4f6;z-index:999999;font-family:ui-monospace,Menlo,Consolas,monospace;padding:2.5rem;box-sizing:border-box;overflow:auto;backdrop-filter:blur(8px);';
+      document.body.appendChild(overlayEl);
+    }
+    var snippetHtml = err.snippet ? '<pre style="background:#161b22;padding:1.2rem;border-radius:8px;border:1px solid #30363d;overflow-x:auto;margin:1.2rem 0;color:#e6edf3;line-height:1.5;font-size:0.95rem;">' + escapeHtml(err.snippet) + '</pre>' : '';
+    var suggHtml = err.suggestion ? '<div style="margin-top:1.2rem;padding:0.9rem 1.2rem;background:rgba(56,189,248,0.1);border-left:4px solid #38bdf8;border-radius:6px;color:#79c0ff;font-size:0.95rem;">💡 <b>Suggestion:</b> ' + escapeHtml(err.suggestion) + '</div>' : '';
+    
+    overlayEl.innerHTML = '<div style="max-width:960px;margin:0 auto;">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #30363d;padding-bottom:1rem;margin-bottom:1.5rem;">' +
+        '<div style="display:flex;align-items:center;gap:10px;">' +
+          '<span style="background:#f85149;color:#fff;padding:4px 12px;border-radius:6px;font-weight:bold;font-size:0.85rem;letter-spacing:0.5px;">BUILD ERROR</span>' +
+          '<span style="color:#8b949e;font-size:0.9rem;">ZeroPack Compiler</span>' +
+        '</div>' +
+        '<button id="__zeropack_close_btn" style="background:#21262d;border:1px solid #30363d;color:#c9d1d9;padding:6px 14px;border-radius:6px;cursor:pointer;font-family:inherit;font-weight:600;">Dismiss [Esc]</button>' +
+      '</div>' +
+      '<h2 style="color:#f85149;font-size:1.4rem;margin:0 0 1rem 0;font-weight:600;word-break:break-word;">' + escapeHtml(err.message) + '</h2>' +
+      (err.file ? '<div style="color:#8b949e;margin-bottom:1rem;font-size:0.95rem;">📍 <span style="color:#58a6ff;font-weight:600;">' + escapeHtml(err.file) + '</span>' + (err.line ? ':' + err.line + (err.column ? ':' + err.column : '') : '') + '</div>' : '') +
+      snippetHtml +
+      suggHtml +
+    '</div>';
+
+    var btn = document.getElementById('__zeropack_close_btn');
+    if (btn) btn.onclick = hideOverlay;
+  }
+
+  function hideOverlay() {
+    if (overlayEl && overlayEl.parentNode) {
+      overlayEl.parentNode.removeChild(overlayEl);
+      overlayEl = null;
+    }
+  }
+
+  window.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') hideOverlay();
+  });
+
+  function escapeHtml(str) {
+    return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  function updateCss(file, timestamp) {
+    var links = document.querySelectorAll('link[rel="stylesheet"]');
+    var updated = false;
+    for (var i = 0; i < links.length; i++) {
+      var href = links[i].getAttribute('href');
+      if (href) {
+        var cleanHref = href.split('?')[0];
+        if (!file || cleanHref.includes(file) || file.includes(cleanHref.replace(/^\\//, ''))) {
+          links[i].setAttribute('href', cleanHref + '?t=' + timestamp);
+          updated = true;
+        }
+      }
+    }
+    if (!updated && links.length > 0) {
+      links[0].setAttribute('href', links[0].getAttribute('href').split('?')[0] + '?t=' + timestamp);
+      updated = true;
+    }
+    if (updated) {
+      console.log('%c[ZeroPack HMR]%c CSS hot-swapped without full reload: ' + (file || 'stylesheets'), 'color: #38bdf8; font-weight: bold;', '');
+    } else {
+      window.location.reload();
+    }
+  }
+
+  ws.onopen = function() { console.log('[ZeroPack DevServer] Connected to live reload & HMR'); };
   ws.onmessage = function(e) {
     try {
       var data = JSON.parse(e.data);
-      if (data.type === 'reload') {
+      if (data.type === 'error') {
+        showOverlay(data.error);
+      } else if (data.type === 'clear-error') {
+        hideOverlay();
+      } else if (data.type === 'css-update') {
+        hideOverlay();
+        updateCss(data.file, data.timestamp);
+      } else if (data.type === 'reload') {
+        hideOverlay();
         console.log('[ZeroPack DevServer] Reloading page...');
         window.location.reload();
       }
@@ -293,7 +416,11 @@ export async function startDevServer(options = {}) {
         'Access-Control-Allow-Origin': '*',
         'Cache-Control': 'no-cache, no-store, must-revalidate'
       });
-      res.end(JSON.stringify(currentStats || {}));
+      res.end(JSON.stringify({
+        ...(currentStats || {}),
+        buildHistory,
+        logHistory
+      }));
       return;
     }
 
@@ -446,9 +573,19 @@ export async function startDevServer(options = {}) {
     }
 
     debounceTimer = setTimeout(() => {
+      // Check if modified file is a CSS stylesheet
+      if (filename.endsWith('.css')) {
+        logger.hmr(`CSS file change detected: ${colors.cyan(filename)}. Hot-swapping stylesheet...`);
+        addLog('hmr', `CSS hot-swapped: ${filename}`);
+        broadcast({ type: 'css-update', file: filename, timestamp: Date.now() });
+        return;
+      }
+
       logger.hmr(`File change detected: ${colors.cyan(filename)}. Rebundling...`);
-      const success = compile();
+      addLog('build', `File change detected: ${filename}. Rebundling...`);
+      const success = compile(filename);
       if (success) {
+        broadcast({ type: 'clear-error' });
         broadcast({ type: 'reload', file: filename, timestamp: Date.now() });
         logger.hmr(`Dispatched ${colors.green('RELOAD')} frame to ${colors.bold(activeSockets.size)} client(s)`);
       }

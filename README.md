@@ -68,6 +68,7 @@ Every industry-standard npm library has been replaced with a native Node.js core
 | **`terser`** / **`uglify-js`** | State-Machine Minifier | `node:string_decoder` | Comment stripping, whitespace trimming & string preservation |
 | **`chokidar`** | Native File Watcher | `node:fs.watch` | 100ms debounced recursive file watcher |
 | **`ws`** / **`socket.io`** | Native RFC 6455 Server | `node:http` + `node:crypto` | HTTP 101 upgrade handshake, frame encoder/decoder |
+| **`compression`** / **`gzip-size`** | Native Gzip Metric Calculator | `node:zlib` | Real-time gzip bundle and module size calculations |
 | **`mime`** / **`mime-types`** | Custom MIME Dictionary | Object Hash Table | 15+ MIME type headers (`.html`, `.js`, `.css`, etc.) |
 | **`crypto-js`** | Native Hash Calculator | `node:crypto` | SHA-256 module digests & SHA-1 WebSocket accept hashes |
 
@@ -80,12 +81,15 @@ Every industry-standard npm library has been replaced with a native Node.js core
 - 🗺️ **Source Maps v3:** Hand-crafted Base64 VLQ encoder generating compliant `.map` files for both unminified and minified outputs.
 - 📦 **node_modules Resolution:** Full bare-import resolution following Node's algorithm (`exports`, `module`, `main`, and index fallbacks) with structured `BuildError` diagnostics.
 - 🔷 **Native TypeScript Support:** Automatic `.ts` type stripping using native `node:module` built-ins.
+- 🖥️ **Developer Dashboard (`/__zeropack`):** Real-time web UI featuring interactive SVG dependency graphs, proportional size treemaps (raw vs. gzip via `node:zlib`), build timeline history, and streaming logs.
+- 🚨 **Full-Screen Error Overlay:** Beautiful browser compiler error overlay showing line numbers, code frame snippets, and actionable suggestions.
+- 🎨 **CSS Hot-Swap:** Instant stylesheet updates without losing browser DOM or input state.
 - 🔄 **Native RFC 6455 WebSocket HMR:** Real-time live reloading without external WebSocket engines.
 - 🗜️ **Robust State-Machine Minifier:** Lexer preserving ASI (Automatic Semicolon Insertion), operator spacing (`+ +`, `- -`), regex literals vs. division, and nested template literals with `${}`.
 - 🧩 **Comprehensive ESM $\to$ CJS Transforms:** Full support for destructured exports, namespace re-exports (`export * as ns`, `export *`), import attributes (`with`/`assert`), unpolluted default exports, and live getter bindings.
 - 🔒 **100% Deterministic Reproducible Builds:** Modules are sorted lexicographically by normalized paths to guarantee bit-for-bit identical SHA-256 output across runs.
 - 📦 **Single-File Distribution:** Compiles the entire bundler into an independent, standalone executable `zeropack.js`.
-- 🌐 **Static Dev Server:** Built-in HTTP server with MIME auto-detection and automatic client HMR script injection.
+- 🌐 **Static Dev Server:** Built-in HTTP server with SPA fallback routing and automatic client HMR script injection.
 
 ---
 

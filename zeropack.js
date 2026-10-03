@@ -4,7 +4,7 @@
  * Zero-Dependency JavaScript Bundler, Minifier & RFC 6455 HMR Dev Server
  * Built exclusively with Node.js Native Core Libraries.
  * 
- * Auto-generated on: 2026-10-03T22:31:18.527Z
+ * Auto-generated on: 2026-10-03T22:43:53.854Z
  */
 
 import fs from 'node:fs';
@@ -12,6 +12,7 @@ import path from 'node:path';
 import process from 'node:process';
 import http from 'node:http';
 import crypto from 'node:crypto';
+import zlib from 'node:zlib';
 import net from 'node:net';
 import { exec } from 'node:child_process';
 import * as nodeModule from 'node:module';
@@ -1784,11 +1785,15 @@ export function generateBundle(graph, options = {}) {
 
   for (const mod of graph) {
     const modBytes = Buffer.byteLength(mod.code || '', 'utf8');
+    const modGzip = zlib.gzipSync(Buffer.from(mod.code || '', 'utf8')).length;
     originalSize += modBytes;
     moduleStats.push({
       id: mod.id,
       filePath: mod.relativePath || mod.filePath,
-      size: modBytes
+      size: modBytes,
+      gzipSize: modGzip,
+      dependencies: Object.keys(mod.mapping || {}),
+      mapping: mod.mapping || {}
     });
   }
 
@@ -1966,6 +1971,7 @@ export function generateBundle(graph, options = {}) {
   }
 
   const minifiedSize = Buffer.byteLength(bundleSource, 'utf8');
+  const gzipSize = zlib.gzipSync(Buffer.from(bundleSource, 'utf8')).length;
   const buildTimeMs = Math.max(1, Date.now() - startTime);
   const hash = crypto.createHash('sha256').update(bundleSource).digest('hex');
 
@@ -1973,9 +1979,27 @@ export function generateBundle(graph, options = {}) {
     moduleCount: graph.length,
     originalSize,
     minifiedSize,
+    gzipSize,
     buildTimeMs,
     compressionRatio: originalSize > 0 ? (((originalSize - minifiedSize) / originalSize) * 100).toFixed(1) + '%' : '0%',
+    gzipRatio: minifiedSize > 0 ? (((minifiedSize - gzipSize) / minifiedSize) * 100).toFixed(1) + '%' : '0%',
     modules: moduleStats,
+    graph: {
+      nodes: moduleStats.map(m => ({
+        id: m.id,
+        label: path.basename(m.filePath),
+        path: m.filePath,
+        size: m.size,
+        gzipSize: m.gzipSize
+      })),
+      links: sortedGraph.flatMap(m =>
+        Object.entries(m.mapping || {}).map(([spec, targetId]) => ({
+          source: m.id,
+          target: targetId,
+          specifier: spec
+        }))
+      )
+    },
     lastBuildTimestamp: new Date().toLocaleTimeString()
   };
 
@@ -2021,14 +2045,15 @@ export function bundleToFile(graph, outPath, options = {}) {
 // ==========================================
 /**
  * ZeroPack Developer Dashboard (100% Zero-Dependency Frontend)
- * Built with native HTML5, modern CSS Grid/Variables, and Vanilla JavaScript.
+ * Built with native HTML5, modern CSS Grid/Flexbox/Variables, SVG graphics, and Vanilla JavaScript.
+ * Strictly zero external CDN scripts or stylesheet dependencies.
  */
 export const DASHBOARD_HTML = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ZeroPack Dashboard & Build Metrics</title>
+  <title>ZeroPack Dashboard & Real-Time Analytics</title>
   <style>
     :root {
       --bg: #090d16;
@@ -2038,7 +2063,7 @@ export const DASHBOARD_HTML = `<!DOCTYPE html>
       --text-main: #f3f4f6;
       --text-muted: #9ca3af;
       --accent: #38bdf8;
-      --accent-glow: rgba(56, 189, 248, 0.15);
+      --accent-glow: rgba(56, 189, 248, 0.2);
       --accent-purple: #818cf8;
       --success: #34d399;
       --warning: #fbbf24;
@@ -2061,7 +2086,7 @@ export const DASHBOARD_HTML = `<!DOCTYPE html>
     }
 
     .container {
-      max-width: 1100px;
+      max-width: 1200px;
       margin: 0 auto;
     }
 
@@ -2070,15 +2095,17 @@ export const DASHBOARD_HTML = `<!DOCTYPE html>
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding-bottom: 2rem;
+      padding-bottom: 1.5rem;
       border-bottom: 1px solid var(--border);
-      margin-bottom: 2rem;
+      margin-bottom: 1.5rem;
+      flex-wrap: wrap;
+      gap: 1rem;
     }
 
     .logo-area {
       display: flex;
       align-items: center;
-      gap: 12px;
+      gap: 14px;
     }
 
     .logo-icon {
@@ -2090,7 +2117,7 @@ export const DASHBOARD_HTML = `<!DOCTYPE html>
       align-items: center;
       justify-content: center;
       border-radius: 12px;
-      box-shadow: 0 0 20px rgba(56, 189, 248, 0.3);
+      box-shadow: 0 0 20px var(--accent-glow);
     }
 
     .logo-text h1 {
@@ -2141,11 +2168,11 @@ export const DASHBOARD_HTML = `<!DOCTYPE html>
 
     @keyframes pulse-flash {
       0% { transform: scale(1); background: rgba(56, 189, 248, 0.3); color: #fff; }
-      50% { transform: scale(1.1); background: rgba(56, 189, 248, 0.8); color: #fff; }
+      50% { transform: scale(1.08); background: rgba(56, 189, 248, 0.8); color: #fff; }
       100% { transform: scale(1); }
     }
 
-    .btn-refresh {
+    .btn {
       background: var(--card-bg);
       border: 1px solid var(--border);
       color: var(--text-main);
@@ -2160,15 +2187,56 @@ export const DASHBOARD_HTML = `<!DOCTYPE html>
       transition: all 0.2s;
     }
 
-    .btn-refresh:hover {
+    .btn:hover {
       background: var(--card-hover);
       border-color: var(--accent);
+    }
+
+    /* Navigation Tabs */
+    .tabs-nav {
+      display: flex;
+      gap: 8px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 2rem;
+      overflow-x: auto;
+    }
+
+    .tab-btn {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      padding: 10px 18px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.2s;
+    }
+
+    .tab-btn:hover {
+      color: var(--text-main);
+    }
+
+    .tab-btn.active {
+      color: var(--accent);
+      border-bottom-color: var(--accent);
+    }
+
+    .tab-content {
+      display: none;
+    }
+
+    .tab-content.active {
+      display: block;
     }
 
     /* Metrics Grid */
     .metrics-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
       gap: 1.25rem;
       margin-bottom: 2rem;
     }
@@ -2199,7 +2267,7 @@ export const DASHBOARD_HTML = `<!DOCTYPE html>
     }
 
     .metric-title {
-      font-size: 0.85rem;
+      font-size: 0.8rem;
       text-transform: uppercase;
       letter-spacing: 0.5px;
       color: var(--text-muted);
@@ -2207,7 +2275,7 @@ export const DASHBOARD_HTML = `<!DOCTYPE html>
     }
 
     .metric-value {
-      font-size: 2rem;
+      font-size: 1.8rem;
       font-weight: 700;
       color: var(--text-main);
       display: flex;
@@ -2221,7 +2289,7 @@ export const DASHBOARD_HTML = `<!DOCTYPE html>
       margin-top: 0.5rem;
     }
 
-    /* Chart Section */
+    /* Panel Card */
     .panel {
       background: var(--card-bg);
       border: 1px solid var(--border);
@@ -2235,6 +2303,8 @@ export const DASHBOARD_HTML = `<!DOCTYPE html>
       justify-content: space-between;
       align-items: center;
       margin-bottom: 1.5rem;
+      flex-wrap: wrap;
+      gap: 0.5rem;
     }
 
     .panel-title {
@@ -2245,6 +2315,7 @@ export const DASHBOARD_HTML = `<!DOCTYPE html>
       gap: 8px;
     }
 
+    /* Module Bar Chart */
     .bar-chart {
       display: flex;
       flex-direction: column;
@@ -2288,6 +2359,187 @@ export const DASHBOARD_HTML = `<!DOCTYPE html>
       transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
     }
 
+    /* SVG Module Graph */
+    .graph-container {
+      width: 100%;
+      height: 520px;
+      background: #0d121f;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+      position: relative;
+    }
+
+    svg.module-graph {
+      width: 100%;
+      height: 100%;
+      user-select: none;
+    }
+
+    .graph-node circle {
+      stroke-width: 2.5px;
+      cursor: pointer;
+      transition: transform 0.2s, r 0.2s;
+    }
+
+    .graph-node:hover circle {
+      transform: scale(1.15);
+      stroke: #fff;
+    }
+
+    .graph-node text {
+      font-family: ui-monospace, monospace;
+      font-size: 11px;
+      fill: #c9d1d9;
+      pointer-events: none;
+      text-anchor: middle;
+    }
+
+    .graph-link {
+      stroke: #2d3748;
+      stroke-width: 1.5px;
+      stroke-opacity: 0.7;
+      fill: none;
+    }
+
+    .graph-tooltip {
+      position: absolute;
+      background: rgba(17, 24, 39, 0.95);
+      border: 1px solid var(--accent);
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 0.8rem;
+      pointer-events: none;
+      display: none;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+      z-index: 10;
+    }
+
+    /* Treemap */
+    .treemap-container {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      padding: 12px;
+      background: #0d121f;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      min-height: 380px;
+    }
+
+    .treemap-tile {
+      background: linear-gradient(135deg, rgba(30, 41, 59, 0.8), rgba(15, 23, 42, 0.9));
+      border: 1px solid rgba(56, 189, 248, 0.2);
+      border-radius: 6px;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      transition: all 0.2s;
+      cursor: pointer;
+      overflow: hidden;
+    }
+
+    .treemap-tile:hover {
+      border-color: var(--accent);
+      transform: translateY(-2px);
+      box-shadow: 0 0 16px var(--accent-glow);
+    }
+
+    .treemap-name {
+      font-family: monospace;
+      font-size: 0.85rem;
+      color: #e2e8f0;
+      word-break: break-all;
+    }
+
+    .treemap-size {
+      font-size: 0.8rem;
+      color: var(--accent);
+      font-weight: 600;
+      margin-top: 6px;
+    }
+
+    /* Build Timeline */
+    .timeline {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      max-height: 480px;
+      overflow-y: auto;
+      padding-right: 6px;
+    }
+
+    .timeline-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      background: #0d121f;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 0.88rem;
+      transition: border-color 0.2s;
+    }
+
+    .timeline-item:hover {
+      border-color: var(--accent);
+    }
+
+    .timeline-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .timeline-badge {
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      font-family: monospace;
+    }
+
+    .badge-success { background: rgba(52, 211, 153, 0.15); color: var(--success); border: 1px solid var(--success); }
+    .badge-error { background: rgba(248, 113, 113, 0.15); color: var(--danger); border: 1px solid var(--danger); }
+
+    .timeline-file {
+      font-family: monospace;
+      color: #e2e8f0;
+    }
+
+    .timeline-meta {
+      color: var(--text-muted);
+      font-size: 0.8rem;
+    }
+
+    /* Live Log Console */
+    .log-console {
+      background: #090c15;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      height: 380px;
+      overflow-y: auto;
+      padding: 12px;
+      font-family: ui-monospace, Menlo, Consolas, monospace;
+      font-size: 0.85rem;
+      line-height: 1.6;
+    }
+
+    .log-line {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 4px;
+    }
+
+    .log-time { color: #64748b; }
+    .log-tag { font-weight: bold; border-radius: 3px; padding: 0 4px; }
+    .tag-build { color: #c084fc; }
+    .tag-hmr { color: #38bdf8; }
+    .tag-error { color: #f87171; }
+    .tag-info { color: #94a3b8; }
+    .log-msg { color: #cbd5e1; word-break: break-word; }
+
     /* Footer */
     footer {
       display: flex;
@@ -2297,6 +2549,9 @@ export const DASHBOARD_HTML = `<!DOCTYPE html>
       font-size: 0.8rem;
       padding-top: 1.5rem;
       border-top: 1px solid var(--border);
+      margin-top: 2rem;
+      flex-wrap: wrap;
+      gap: 0.5rem;
     }
 
     .live-tag {
@@ -2316,7 +2571,7 @@ export const DASHBOARD_HTML = `<!DOCTYPE html>
         <div class="logo-icon">⚡</div>
         <div class="logo-text">
           <h1>ZeroPack Dashboard</h1>
-          <p>Zero-Dependency Real-Time Build Metrics & Analytics</p>
+          <p>Zero-Dependency Build Engine &amp; Real-Time Analytics</p>
         </div>
       </div>
       <div class="header-actions">
@@ -2324,146 +2579,455 @@ export const DASHBOARD_HTML = `<!DOCTYPE html>
           <span class="status-dot"></span>
           <span id="hmr-status-text">HMR Live Active</span>
         </span>
-        <button id="btn-refresh" class="btn-refresh" onclick="fetchMetrics()">
+        <button id="btn-refresh" class="btn" onclick="fetchMetrics()">
           <span>🔄</span> Refresh
         </button>
       </div>
     </header>
 
-    <!-- Metrics Cards -->
-    <div class="metrics-grid">
-      <div class="metric-card">
-        <div class="metric-title">Total Modules</div>
-        <div class="metric-value" id="val-module-count">--</div>
-        <div class="metric-subtext">Scanned & bundled in dependency tree</div>
+    <!-- Navigation Tabs -->
+    <nav class="tabs-nav">
+      <button class="tab-btn active" onclick="switchTab('overview')">📊 Overview &amp; Metrics</button>
+      <button class="tab-btn" onclick="switchTab('graph')">🕸️ SVG Module Graph</button>
+      <button class="tab-btn" onclick="switchTab('treemap')">📦 Size Treemap</button>
+      <button class="tab-btn" onclick="switchTab('timeline')">⏱️ Timeline &amp; Live Logs</button>
+    </nav>
+
+    <!-- TAB 1: Overview & Metrics -->
+    <div id="tab-overview" class="tab-content active">
+      <div class="metrics-grid">
+        <div class="metric-card">
+          <div class="metric-title">Total Modules</div>
+          <div class="metric-value" id="val-module-count">--</div>
+          <div class="metric-subtext">Scanned &amp; bundled in dependency graph</div>
+        </div>
+
+        <div class="metric-card">
+          <div class="metric-title">Bundle Size</div>
+          <div class="metric-value" id="val-bundle-size">--</div>
+          <div class="metric-subtext" id="val-orig-size">Original: --</div>
+        </div>
+
+        <div class="metric-card">
+          <div class="metric-title">Gzip Size (node:zlib)</div>
+          <div class="metric-value" id="val-gzip-size" style="color: #a78bfa;">--</div>
+          <div class="metric-subtext" id="val-gzip-ratio">Saved: -- via gzip</div>
+        </div>
+
+        <div class="metric-card">
+          <div class="metric-title">Build Time</div>
+          <div class="metric-value" id="val-build-time">-- <span style="font-size: 1rem; color: var(--text-muted);">ms</span></div>
+          <div class="metric-subtext" id="val-timestamp">Last build: --</div>
+        </div>
       </div>
 
-      <div class="metric-card">
-        <div class="metric-title">Bundle Size</div>
-        <div class="metric-value" id="val-bundle-size">--</div>
-        <div class="metric-subtext" id="val-orig-size">Original: -- KB</div>
-      </div>
-
-      <div class="metric-card">
-        <div class="metric-title">Build Time</div>
-        <div class="metric-value" id="val-build-time">-- <span style="font-size: 1rem; color: var(--text-muted);">ms</span></div>
-        <div class="metric-subtext" id="val-timestamp">Last build: --</div>
-      </div>
-
-      <div class="metric-card">
-        <div class="metric-title">Compression Saved</div>
-        <div class="metric-value" id="val-compression" style="color: var(--success);">--</div>
-        <div class="metric-subtext">Via Native State-Machine Minifier</div>
+      <!-- Largest Modules Chart -->
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title">
+            <span>📈</span> Top Module Size Distribution
+          </div>
+          <span class="live-tag">RFC 6455 STREAM</span>
+        </div>
+        <div class="bar-chart" id="module-bars">
+          <div style="color: var(--text-muted); font-size: 0.9rem;">Loading dependency distribution...</div>
+        </div>
       </div>
     </div>
 
-    <!-- Largest Modules Chart -->
-    <div class="panel">
-      <div class="panel-header">
-        <div class="panel-title">
-          <span>📊</span> Top Module Size Distribution
+    <!-- TAB 2: SVG Module Graph -->
+    <div id="tab-graph" class="tab-content">
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title">
+            <span>🕸️</span> Dependency Topology Graph
+          </div>
+          <span style="font-size: 0.85rem; color: var(--text-muted);">Interactive SVG • Directed import links</span>
         </div>
-        <span class="live-tag">RFC 6455 STREAM</span>
+        <div class="graph-container" id="graph-container">
+          <svg class="module-graph" id="svg-graph"></svg>
+          <div class="graph-tooltip" id="graph-tooltip"></div>
+        </div>
       </div>
-      <div class="bar-chart" id="module-bars">
-        <div style="color: var(--text-muted); font-size: 0.9rem;">Loading dependency distribution...</div>
+    </div>
+
+    <!-- TAB 3: Size Treemap -->
+    <div id="tab-treemap" class="tab-content">
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title">
+            <span>📦</span> Bundle Size Proportional Treemap
+          </div>
+          <div style="display: flex; gap: 8px;">
+            <button class="btn" id="btn-size-raw" onclick="setTreemapMode('raw')">Raw Size</button>
+            <button class="btn" id="btn-size-gzip" onclick="setTreemapMode('gzip')">Gzip Size</button>
+          </div>
+        </div>
+        <div class="treemap-container" id="treemap-container">
+          <div style="color: var(--text-muted); padding: 1rem;">Generating treemap...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 4: Build Timeline & Live Logs -->
+    <div id="tab-timeline" class="tab-content">
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 1.5rem;">
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title">
+              <span>⏱️</span> Build History Timeline
+            </div>
+            <span class="live-tag" id="timeline-count">0 Builds</span>
+          </div>
+          <div class="timeline" id="timeline-list">
+            <div style="color: var(--text-muted); font-size: 0.9rem;">No rebuilds recorded yet. Edit a file to see timeline.</div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title">
+              <span>📜</span> Live Compiler Stream
+            </div>
+            <button class="btn" onclick="clearLogs()" style="font-size: 0.75rem; padding: 4px 8px;">Clear</button>
+          </div>
+          <div class="log-console" id="log-console">
+            <!-- Log items appear here -->
+          </div>
+        </div>
       </div>
     </div>
 
     <footer>
-      <span>ZeroPack v1.0.0 • 100% Native Node.js Toolchain</span>
-      <span>Live Endpoint: <code>/__zeropack/stats</code></span>
+      <span>ZeroPack v1.0.0 • 100% Native Node.js Toolchain (Zero Dependencies)</span>
+      <span>Live Endpoint: <code>/__zeropack/stats</code> • HMR: <code>/__zeropack_hmr</code></span>
     </footer>
   </div>
 
   <script>
+    var currentStatsData = null;
+    var treemapMode = 'raw';
+
     function formatBytes(bytes) {
-      if (bytes === 0) return '0 B';
-      const k = 1024;
-      const sizes = ['B', 'KB', 'MB'];
-      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      if (!bytes || bytes === 0) return '0 B';
+      var k = 1024;
+      var sizes = ['B', 'KB', 'MB'];
+      var i = Math.floor(Math.log(bytes) / Math.log(k));
       return (bytes / Math.pow(k, i)).toFixed(2) + ' ' + sizes[i];
+    }
+
+    function switchTab(tabId) {
+      var tabBtns = document.querySelectorAll('.tab-btn');
+      var contents = document.querySelectorAll('.tab-content');
+      tabBtns.forEach(function(btn) { btn.classList.remove('active'); });
+      contents.forEach(function(content) { content.classList.remove('active'); });
+
+      var targetContent = document.getElementById('tab-' + tabId);
+      if (targetContent) targetContent.classList.add('active');
+
+      var clickedBtn = Array.from(tabBtns).find(function(b) {
+        return b.getAttribute('onclick').includes(tabId);
+      });
+      if (clickedBtn) clickedBtn.classList.add('active');
+
+      if (tabId === 'graph') {
+        renderModuleGraph(currentStatsData);
+      } else if (tabId === 'treemap') {
+        renderTreemap(currentStatsData);
+      }
     }
 
     async function fetchMetrics() {
       try {
-        const res = await fetch('/__zeropack/stats');
+        var res = await fetch('/__zeropack/stats');
         if (!res.ok) return;
-        const data = await res.json();
-        renderMetrics(data);
+        var data = await res.json();
+        currentStatsData = data;
+        renderOverview(data);
+        renderTimeline(data.buildHistory || []);
+        if (data.logHistory) renderLogHistory(data.logHistory);
       } catch (err) {
         console.error('[ZeroPack Dashboard Error]', err);
       }
     }
 
-    function renderMetrics(stats) {
+    function renderOverview(stats) {
       if (!stats) return;
 
       document.getElementById('val-module-count').textContent = stats.moduleCount || 0;
       document.getElementById('val-bundle-size').textContent = formatBytes(stats.minifiedSize || 0);
-      document.getElementById('val-orig-size').textContent = 'Original: ' + formatBytes(stats.originalSize || 0);
+      document.getElementById('val-orig-size').textContent = 'Original: ' + formatBytes(stats.originalSize || 0) + ' (' + (stats.compressionRatio || '0%') + ' saved)';
+      document.getElementById('val-gzip-size').textContent = formatBytes(stats.gzipSize || 0);
+      document.getElementById('val-gzip-ratio').textContent = (stats.gzipRatio || '0%') + ' smaller with gzip';
       document.getElementById('val-build-time').innerHTML = (stats.buildTimeMs || 0) + ' <span style="font-size: 1rem; color: var(--text-muted);">ms</span>';
-      document.getElementById('val-compression').textContent = stats.compressionRatio || '0%';
       document.getElementById('val-timestamp').textContent = 'Last built: ' + (stats.lastBuildTimestamp || 'Just now');
 
-      // Render Top Modules Bar Chart
-      const container = document.getElementById('module-bars');
+      // Top Module Bars
+      var container = document.getElementById('module-bars');
       container.innerHTML = '';
-
-      const modules = stats.modules || [];
-      const topModules = modules.slice(0, 6);
-      const maxSize = topModules.length > 0 ? topModules[0].size : 1;
+      var modules = stats.modules || [];
+      var topModules = modules.slice(0, 7);
+      var maxSize = topModules.length > 0 ? topModules[0].size : 1;
 
       if (topModules.length === 0) {
         container.innerHTML = '<div style="color: var(--text-muted);">No modules found.</div>';
         return;
       }
 
-      for (const mod of topModules) {
-        const percentage = Math.max(5, Math.min(100, Math.round((mod.size / maxSize) * 100)));
-        const item = document.createElement('div');
+      for (var i = 0; i < topModules.length; i++) {
+        var mod = topModules[i];
+        var pct = Math.max(5, Math.min(100, Math.round((mod.size / maxSize) * 100)));
+        var item = document.createElement('div');
         item.className = 'bar-item';
         item.innerHTML = \`
           <div class="bar-meta">
             <span class="bar-name">\${mod.filePath}</span>
-            <span class="bar-size">\${formatBytes(mod.size)}</span>
+            <span class="bar-size">\${formatBytes(mod.size)} <span style="color:#a78bfa;font-size:0.75rem;">(\${formatBytes(mod.gzipSize)} gzip)</span></span>
           </div>
           <div class="bar-track">
-            <div class="bar-fill" style="width: \${percentage}%;"></div>
+            <div class="bar-fill" style="width: \${pct}%;"></div>
           </div>
         \`;
         container.appendChild(item);
       }
     }
 
-    // Connect to WebSocket for Live Metric Updates
-    function initWebSocket() {
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = protocol + '//' + window.location.host + '/__zeropack_hmr';
-      const badge = document.getElementById('hmr-badge');
-      const badgeText = document.getElementById('hmr-status-text');
+    // Native SVG Module Graph Renderer
+    function renderModuleGraph(stats) {
+      if (!stats || !stats.graph) return;
+      var svg = document.getElementById('svg-graph');
+      var tooltip = document.getElementById('graph-tooltip');
+      var container = document.getElementById('graph-container');
+      svg.innerHTML = '';
 
-      const ws = new WebSocket(wsUrl);
+      var width = container.clientWidth || 800;
+      var height = container.clientHeight || 520;
+      var nodes = stats.graph.nodes || [];
+      var links = stats.graph.links || [];
+
+      if (nodes.length === 0) return;
+
+      // Position nodes radially or in circle
+      var centerX = width / 2;
+      var centerY = height / 2;
+      var radius = Math.min(width, height) * 0.38;
+      var nodePos = {};
+
+      nodes.forEach(function(node, idx) {
+        var angle = (idx / nodes.length) * 2 * Math.PI - Math.PI / 2;
+        var r = nodes.length === 1 ? 0 : radius;
+        nodePos[node.id] = {
+          x: centerX + r * Math.cos(angle),
+          y: centerY + r * Math.sin(angle),
+          node: node
+        };
+      });
+
+      // Defs: Arrowhead marker
+      var defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+      defs.innerHTML = \`
+        <marker id="arrow" viewBox="0 0 10 10" refX="22" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="#38bdf8" opacity="0.8" />
+        </marker>
+      \`;
+      svg.appendChild(defs);
+
+      // Draw Links
+      links.forEach(function(link) {
+        var src = nodePos[link.source];
+        var tgt = nodePos[link.target];
+        if (src && tgt) {
+          var line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+          line.setAttribute('x1', src.x);
+          line.setAttribute('y1', src.y);
+          line.setAttribute('x2', tgt.x);
+          line.setAttribute('y2', tgt.y);
+          line.setAttribute('class', 'graph-link');
+          line.setAttribute('marker-end', 'url(#arrow)');
+          svg.appendChild(line);
+        }
+      });
+
+      // Draw Nodes
+      nodes.forEach(function(node) {
+        var pos = nodePos[node.id];
+        var g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        g.setAttribute('class', 'graph-node');
+        g.setAttribute('transform', 'translate(' + pos.x + ',' + pos.y + ')');
+
+        var circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        var isEntry = (node.id === 0);
+        circle.setAttribute('r', isEntry ? 16 : 12);
+        circle.setAttribute('fill', isEntry ? '#0284c7' : '#1e293b');
+        circle.setAttribute('stroke', isEntry ? '#38bdf8' : '#818cf8');
+
+        var text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        text.setAttribute('y', 26);
+        text.textContent = node.label;
+
+        g.appendChild(circle);
+        g.appendChild(text);
+
+        // Tooltip interactions
+        g.addEventListener('mouseenter', function(e) {
+          tooltip.style.display = 'block';
+          tooltip.innerHTML = \`
+            <b style="color:#38bdf8;">\${node.path}</b><br/>
+            Raw: <b>\${formatBytes(node.size)}</b> • Gzip: <b>\${formatBytes(node.gzipSize)}</b><br/>
+            Module ID: \${node.id}
+          \`;
+        });
+        g.addEventListener('mousemove', function(e) {
+          var rect = container.getBoundingClientRect();
+          tooltip.style.left = (e.clientX - rect.left + 15) + 'px';
+          tooltip.style.top = (e.clientY - rect.top + 15) + 'px';
+        });
+        g.addEventListener('mouseleave', function() {
+          tooltip.style.display = 'none';
+        });
+
+        svg.appendChild(g);
+      });
+    }
+
+    // Proportional Treemap Renderer
+    function setTreemapMode(mode) {
+      treemapMode = mode;
+      document.getElementById('btn-size-raw').style.borderColor = (mode === 'raw' ? 'var(--accent)' : 'var(--border)');
+      document.getElementById('btn-size-gzip').style.borderColor = (mode === 'gzip' ? 'var(--accent)' : 'var(--border)');
+      renderTreemap(currentStatsData);
+    }
+
+    function renderTreemap(stats) {
+      if (!stats || !stats.modules) return;
+      var container = document.getElementById('treemap-container');
+      container.innerHTML = '';
+
+      var total = stats.modules.reduce(function(acc, m) {
+        return acc + (treemapMode === 'gzip' ? (m.gzipSize || m.size) : m.size);
+      }, 0);
+
+      if (total === 0) return;
+
+      stats.modules.forEach(function(mod) {
+        var sizeVal = (treemapMode === 'gzip' ? (mod.gzipSize || mod.size) : mod.size);
+        var ratio = sizeVal / total;
+        var flexGrow = Math.max(1, Math.round(ratio * 100));
+
+        var tile = document.createElement('div');
+        tile.className = 'treemap-tile';
+        tile.style.flex = flexGrow + ' 1 ' + Math.max(140, Math.round(ratio * 400)) + 'px';
+        tile.innerHTML = \`
+          <div class="treemap-name">\${mod.filePath}</div>
+          <div class="treemap-size">
+            \${formatBytes(sizeVal)}
+            <span style="font-size:0.75rem;color:var(--text-muted);">(\${(ratio * 100).toFixed(1)}%)</span>
+          </div>
+        \`;
+        container.appendChild(tile);
+      });
+    }
+
+    // Build History Timeline
+    function renderTimeline(history) {
+      var container = document.getElementById('timeline-list');
+      var countEl = document.getElementById('timeline-count');
+      if (countEl) countEl.textContent = (history.length || 0) + ' Builds';
+
+      if (!history || history.length === 0) {
+        container.innerHTML = '<div style="color: var(--text-muted); font-size: 0.9rem;">No rebuilds recorded yet. Edit a file to see timeline.</div>';
+        return;
+      }
+
+      container.innerHTML = '';
+      history.forEach(function(item) {
+        var row = document.createElement('div');
+        row.className = 'timeline-item';
+        var isSuccess = (item.status === 'success');
+        row.innerHTML = \`
+          <div class="timeline-left">
+            <span class="timeline-badge \${isSuccess ? 'badge-success' : 'badge-error'}">\${isSuccess ? 'SUCCESS' : 'ERROR'}</span>
+            <div>
+              <div class="timeline-file">\${item.file || 'Rebuild'}</div>
+              <div class="timeline-meta">\${item.timestamp} \${item.timeMs ? '• ' + item.timeMs + 'ms' : ''}</div>
+            </div>
+          </div>
+          <div style="font-family:monospace;font-size:0.8rem;color:\${isSuccess ? 'var(--accent)' : 'var(--danger)'};">
+            \${isSuccess ? formatBytes(item.size) : 'Build Failed'}
+          </div>
+        \`;
+        container.appendChild(row);
+      });
+    }
+
+    // Live Logs
+    function appendLog(level, message, timestamp) {
+      var consoleEl = document.getElementById('log-console');
+      if (!consoleEl) return;
+      var line = document.createElement('div');
+      line.className = 'log-line';
+      var tagClass = 'tag-info';
+      if (level === 'build') tagClass = 'tag-build';
+      else if (level === 'hmr') tagClass = 'tag-hmr';
+      else if (level === 'error') tagClass = 'tag-error';
+
+      line.innerHTML = \`
+        <span class="log-time">\${timestamp || new Date().toLocaleTimeString()}</span>
+        <span class="log-tag \${tagClass}">[\${level.toUpperCase()}]</span>
+        <span class="log-msg">\${message}</span>
+      \`;
+      consoleEl.appendChild(line);
+      consoleEl.scrollTop = consoleEl.scrollHeight;
+    }
+
+    function renderLogHistory(logs) {
+      var consoleEl = document.getElementById('log-console');
+      if (!consoleEl) return;
+      consoleEl.innerHTML = '';
+      (logs || []).slice().reverse().forEach(function(log) {
+        appendLog(log.level, log.message, log.timestamp);
+      });
+    }
+
+    function clearLogs() {
+      var consoleEl = document.getElementById('log-console');
+      if (consoleEl) consoleEl.innerHTML = '';
+    }
+
+    // Connect to WebSocket for Live Metric Updates & Log Streaming
+    function initWebSocket() {
+      var protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      var wsUrl = protocol + '//' + window.location.host + '/__zeropack_hmr';
+      var badge = document.getElementById('hmr-badge');
+      var badgeText = document.getElementById('hmr-status-text');
+
+      var ws = new WebSocket(wsUrl);
 
       ws.onopen = function() {
         badge.style.borderColor = 'rgba(52, 211, 153, 0.3)';
         badge.style.color = 'var(--success)';
         badgeText.textContent = 'HMR Live Active';
+        appendLog('info', 'Connected to ZeroPack RFC 6455 WebSocket stream');
       };
 
       ws.onmessage = function(event) {
         try {
-          const data = JSON.parse(event.data);
-          if (data.type === 'reload') {
-            // Flash badge
+          var data = JSON.parse(event.data);
+          if (data.type === 'reload' || data.type === 'css-update' || data.type === 'clear-error') {
             badge.classList.add('reload-flash');
             badgeText.textContent = 'Live Reloaded!';
-            setTimeout(() => {
+            setTimeout(function() {
               badge.classList.remove('reload-flash');
               badgeText.textContent = 'HMR Live Active';
             }, 1200);
 
-            // Refresh stats without whole page reload
+            fetchMetrics();
+          } else if (data.type === 'log') {
+            appendLog(data.level, data.message, data.timestamp);
+          } else if (data.type === 'error') {
+            badge.style.borderColor = 'rgba(248, 113, 113, 0.4)';
+            badge.style.color = 'var(--danger)';
+            badgeText.textContent = 'Build Error';
             fetchMetrics();
           }
         } catch (e) {
@@ -2689,6 +3253,19 @@ export async function startDevServer(options = {}) {
 
   let currentStats = initialStats;
   const activeSockets = new Set();
+  const buildHistory = [];
+  const logHistory = [];
+
+  function addLog(level, msg) {
+    const item = {
+      timestamp: new Date().toLocaleTimeString(),
+      level,
+      message: msg
+    };
+    logHistory.unshift(item);
+    if (logHistory.length > 80) logHistory.pop();
+    broadcast({ type: 'log', ...item });
+  }
 
   // Helper to broadcast WebSocket message to all connected clients
   function broadcast(data) {
@@ -2705,15 +3282,48 @@ export async function startDevServer(options = {}) {
   }
 
   // Initial / Rebuild compilation
-  function compile() {
+  function compile(changedFile = null) {
     try {
       const graph = buildDependencyGraph(entry, rootDir);
       const result = bundleToFile(graph, out, { minify, sourcemap, define, hmr: true });
       currentStats = result.stats;
       logger.hmr(`Rebuilt bundle: ${colors.green(result.size + ' bytes')} (${colors.gray(result.hash.slice(0, 10))})`);
+      addLog('build', `Bundle generated: ${result.size} bytes (${result.stats.buildTimeMs}ms)`);
+      buildHistory.unshift({
+        id: Date.now(),
+        timestamp: new Date().toLocaleTimeString(),
+        timeMs: result.stats.buildTimeMs,
+        size: result.size,
+        gzipSize: result.stats.gzipSize,
+        status: 'success',
+        file: changedFile || entry
+      });
+      if (buildHistory.length > 50) buildHistory.pop();
       return result;
     } catch (err) {
       logger.error(`Rebuild error: ${err.message}`);
+      addLog('error', `Build failed: ${err.message}`);
+      buildHistory.unshift({
+        id: Date.now(),
+        timestamp: new Date().toLocaleTimeString(),
+        status: 'error',
+        error: err.message,
+        file: err.file || changedFile || entry
+      });
+      if (buildHistory.length > 50) buildHistory.pop();
+
+      // Broadcast error to connected clients for full-screen overlay
+      broadcast({
+        type: 'error',
+        error: {
+          message: err.message,
+          file: err.file || changedFile || entry,
+          line: err.line || 1,
+          column: err.column || 1,
+          snippet: err.codeSnippet || (err.frame ? err.frame : ''),
+          suggestion: err.suggestion || null
+        }
+      });
       return null;
     }
   }
@@ -2730,11 +3340,88 @@ export async function startDevServer(options = {}) {
 (function() {
   var protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   var ws = new WebSocket(protocol + '//' + window.location.host + '/__zeropack_hmr');
-  ws.onopen = function() { console.log('[ZeroPack DevServer] Connected to live reload'); };
+  var overlayEl = null;
+
+  function showOverlay(err) {
+    if (!overlayEl) {
+      overlayEl = document.createElement('div');
+      overlayEl.id = '__zeropack_error_overlay';
+      overlayEl.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(10,13,20,0.96);color:#f3f4f6;z-index:999999;font-family:ui-monospace,Menlo,Consolas,monospace;padding:2.5rem;box-sizing:border-box;overflow:auto;backdrop-filter:blur(8px);';
+      document.body.appendChild(overlayEl);
+    }
+    var snippetHtml = err.snippet ? '<pre style="background:#161b22;padding:1.2rem;border-radius:8px;border:1px solid #30363d;overflow-x:auto;margin:1.2rem 0;color:#e6edf3;line-height:1.5;font-size:0.95rem;">' + escapeHtml(err.snippet) + '</pre>' : '';
+    var suggHtml = err.suggestion ? '<div style="margin-top:1.2rem;padding:0.9rem 1.2rem;background:rgba(56,189,248,0.1);border-left:4px solid #38bdf8;border-radius:6px;color:#79c0ff;font-size:0.95rem;">💡 <b>Suggestion:</b> ' + escapeHtml(err.suggestion) + '</div>' : '';
+    
+    overlayEl.innerHTML = '<div style="max-width:960px;margin:0 auto;">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #30363d;padding-bottom:1rem;margin-bottom:1.5rem;">' +
+        '<div style="display:flex;align-items:center;gap:10px;">' +
+          '<span style="background:#f85149;color:#fff;padding:4px 12px;border-radius:6px;font-weight:bold;font-size:0.85rem;letter-spacing:0.5px;">BUILD ERROR</span>' +
+          '<span style="color:#8b949e;font-size:0.9rem;">ZeroPack Compiler</span>' +
+        '</div>' +
+        '<button id="__zeropack_close_btn" style="background:#21262d;border:1px solid #30363d;color:#c9d1d9;padding:6px 14px;border-radius:6px;cursor:pointer;font-family:inherit;font-weight:600;">Dismiss [Esc]</button>' +
+      '</div>' +
+      '<h2 style="color:#f85149;font-size:1.4rem;margin:0 0 1rem 0;font-weight:600;word-break:break-word;">' + escapeHtml(err.message) + '</h2>' +
+      (err.file ? '<div style="color:#8b949e;margin-bottom:1rem;font-size:0.95rem;">📍 <span style="color:#58a6ff;font-weight:600;">' + escapeHtml(err.file) + '</span>' + (err.line ? ':' + err.line + (err.column ? ':' + err.column : '') : '') + '</div>' : '') +
+      snippetHtml +
+      suggHtml +
+    '</div>';
+
+    var btn = document.getElementById('__zeropack_close_btn');
+    if (btn) btn.onclick = hideOverlay;
+  }
+
+  function hideOverlay() {
+    if (overlayEl && overlayEl.parentNode) {
+      overlayEl.parentNode.removeChild(overlayEl);
+      overlayEl = null;
+    }
+  }
+
+  window.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') hideOverlay();
+  });
+
+  function escapeHtml(str) {
+    return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  function updateCss(file, timestamp) {
+    var links = document.querySelectorAll('link[rel="stylesheet"]');
+    var updated = false;
+    for (var i = 0; i < links.length; i++) {
+      var href = links[i].getAttribute('href');
+      if (href) {
+        var cleanHref = href.split('?')[0];
+        if (!file || cleanHref.includes(file) || file.includes(cleanHref.replace(/^\\//, ''))) {
+          links[i].setAttribute('href', cleanHref + '?t=' + timestamp);
+          updated = true;
+        }
+      }
+    }
+    if (!updated && links.length > 0) {
+      links[0].setAttribute('href', links[0].getAttribute('href').split('?')[0] + '?t=' + timestamp);
+      updated = true;
+    }
+    if (updated) {
+      console.log('%c[ZeroPack HMR]%c CSS hot-swapped without full reload: ' + (file || 'stylesheets'), 'color: #38bdf8; font-weight: bold;', '');
+    } else {
+      window.location.reload();
+    }
+  }
+
+  ws.onopen = function() { console.log('[ZeroPack DevServer] Connected to live reload & HMR'); };
   ws.onmessage = function(e) {
     try {
       var data = JSON.parse(e.data);
-      if (data.type === 'reload') {
+      if (data.type === 'error') {
+        showOverlay(data.error);
+      } else if (data.type === 'clear-error') {
+        hideOverlay();
+      } else if (data.type === 'css-update') {
+        hideOverlay();
+        updateCss(data.file, data.timestamp);
+      } else if (data.type === 'reload') {
+        hideOverlay();
         console.log('[ZeroPack DevServer] Reloading page...');
         window.location.reload();
       }
@@ -2774,7 +3461,11 @@ export async function startDevServer(options = {}) {
         'Access-Control-Allow-Origin': '*',
         'Cache-Control': 'no-cache, no-store, must-revalidate'
       });
-      res.end(JSON.stringify(currentStats || {}));
+      res.end(JSON.stringify({
+        ...(currentStats || {}),
+        buildHistory,
+        logHistory
+      }));
       return;
     }
 
@@ -2927,9 +3618,19 @@ export async function startDevServer(options = {}) {
     }
 
     debounceTimer = setTimeout(() => {
+      // Check if modified file is a CSS stylesheet
+      if (filename.endsWith('.css')) {
+        logger.hmr(`CSS file change detected: ${colors.cyan(filename)}. Hot-swapping stylesheet...`);
+        addLog('hmr', `CSS hot-swapped: ${filename}`);
+        broadcast({ type: 'css-update', file: filename, timestamp: Date.now() });
+        return;
+      }
+
       logger.hmr(`File change detected: ${colors.cyan(filename)}. Rebundling...`);
-      const success = compile();
+      addLog('build', `File change detected: ${filename}. Rebundling...`);
+      const success = compile(filename);
       if (success) {
+        broadcast({ type: 'clear-error' });
         broadcast({ type: 'reload', file: filename, timestamp: Date.now() });
         logger.hmr(`Dispatched ${colors.green('RELOAD')} frame to ${colors.bold(activeSockets.size)} client(s)`);
       }
