@@ -2,10 +2,66 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import net from 'node:net';
+import { exec } from 'node:child_process';
 import { logger, colors } from './cli.js';
 import { buildDependencyGraph } from './parser.js';
 import { bundleToFile } from './bundler.js';
 import { DASHBOARD_HTML } from './dashboard.js';
+
+/**
+ * Checks whether a TCP port is currently available to listen on.
+ */
+export function isPortAvailable(port, host = '0.0.0.0') {
+  return new Promise((resolve) => {
+    const tester = net.createServer();
+    tester.once('error', () => {
+      resolve(false);
+    });
+    tester.once('listening', () => {
+      tester.close(() => {
+        resolve(true);
+      });
+    });
+    tester.listen(port, host);
+  });
+}
+
+/**
+ * Finds the first available TCP port starting from startPort.
+ */
+export async function findAvailablePort(startPort = 3000, host = '0.0.0.0', maxAttempts = 100) {
+  const numericPort = parseInt(startPort, 10) || 3000;
+  for (let p = numericPort; p < numericPort + maxAttempts; p++) {
+    const free = await isPortAvailable(p, host);
+    if (free) return p;
+  }
+  return numericPort;
+}
+
+/**
+ * Automatically opens the given URL in the default web browser.
+ * Silently ignores failures and skips execution in CI or non-interactive environments.
+ */
+export function openBrowser(url) {
+  if (process.env.CI || process.env.NODE_ENV === 'test' || !process.stdout.isTTY) {
+    return;
+  }
+  try {
+    const platform = process.platform;
+    let cmd = '';
+    if (platform === 'win32') {
+      cmd = `start "" "${url}"`;
+    } else if (platform === 'darwin') {
+      cmd = `open "${url}"`;
+    } else {
+      cmd = `xdg-open "${url}"`;
+    }
+    exec(cmd, () => {});
+  } catch (_) {
+    // Silent catch
+  }
+}
 
 // -----------------------------------------------------------------------------
 // 1. Native MIME Type Lookup Table
@@ -129,13 +185,26 @@ export function decodeWebSocketFrame(buffer) {
 // -----------------------------------------------------------------------------
 export async function startDevServer(options = {}) {
   const {
-    port = 3000,
+    port: requestedPort = 3000,
+    host = 'localhost',
+    autoPort = true,
+    open = false,
     entry = 'src/index.js',
     out = 'dist/bundle.js',
     minify = false,
+    sourcemap = false,
+    define = {},
     rootDir = process.cwd(),
     stats: initialStats = null
   } = options;
+
+  let port = requestedPort;
+  if (autoPort) {
+    port = await findAvailablePort(requestedPort, host === 'localhost' ? '127.0.0.1' : host);
+    if (port !== requestedPort) {
+      logger.warn(`Port ${colors.yellow(requestedPort)} was in use, switched to available port ${colors.green(colors.bold(port))}`);
+    }
+  }
 
   let currentStats = initialStats;
   const activeSockets = new Set();
@@ -158,7 +227,7 @@ export async function startDevServer(options = {}) {
   function compile() {
     try {
       const graph = buildDependencyGraph(entry, rootDir);
-      const result = bundleToFile(graph, out, { minify, hmr: true });
+      const result = bundleToFile(graph, out, { minify, sourcemap, define, hmr: true });
       currentStats = result.stats;
       logger.hmr(`Rebuilt bundle: ${colors.green(result.size + ' bytes')} (${colors.gray(result.hash.slice(0, 10))})`);
       return result;
@@ -170,6 +239,32 @@ export async function startDevServer(options = {}) {
 
   if (!currentStats) {
     compile();
+  }
+
+  // Helper to inject WebSocket client script into HTML files
+  function injectHmrScript(htmlContent) {
+    if (htmlContent.includes('__zeropack_hmr')) return htmlContent;
+    const hmrScript = `
+<script>
+(function() {
+  var protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  var ws = new WebSocket(protocol + '//' + window.location.host + '/__zeropack_hmr');
+  ws.onopen = function() { console.log('[ZeroPack DevServer] Connected to live reload'); };
+  ws.onmessage = function(e) {
+    try {
+      var data = JSON.parse(e.data);
+      if (data.type === 'reload') {
+        console.log('[ZeroPack DevServer] Reloading page...');
+        window.location.reload();
+      }
+    } catch(err) {}
+  };
+})();
+</script>`;
+    if (htmlContent.includes('</body>')) {
+      return htmlContent.replace('</body>', `${hmrScript}</body>`);
+    }
+    return htmlContent + hmrScript;
   }
 
   // HTTP Server
@@ -207,6 +302,20 @@ export async function startDevServer(options = {}) {
       pathname = '/index.html';
     }
 
+    // Directory traversal security check
+    if (req.url.includes('..') || req.url.includes('\\') || pathname.includes('..')) {
+      res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end('403 Forbidden: Directory traversal attempt blocked');
+      return;
+    }
+
+    const resolvedPath = path.resolve(rootDir, '.' + pathname);
+    if (!resolvedPath.startsWith(path.resolve(rootDir))) {
+      res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end('403 Forbidden: Directory traversal attempt blocked');
+      return;
+    }
+
     let filePath = path.join(rootDir, pathname);
 
     // If file doesn't exist, check inside public/ or dist/
@@ -220,37 +329,14 @@ export async function startDevServer(options = {}) {
       }
     }
 
-    // Serve file if exists
+    // Serve static file if exists
     if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
       const mimeType = getMimeType(filePath);
       let content = fs.readFileSync(filePath);
 
-      // Auto-inject WebSocket client script into HTML files if not already present
+      // Auto-inject WebSocket client script into HTML files
       if (mimeType.startsWith('text/html')) {
-        let html = content.toString('utf8');
-        if (!html.includes('__zeropack_hmr')) {
-          const hmrScript = `
-<script>
-(function() {
-  var protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  var ws = new WebSocket(protocol + '//' + window.location.host + '/__zeropack_hmr');
-  ws.onopen = function() { console.log('[ZeroPack DevServer] Connected to live reload'); };
-  ws.onmessage = function(e) {
-    var data = JSON.parse(e.data);
-    if (data.type === 'reload') {
-      console.log('[ZeroPack DevServer] Reloading page...');
-      window.location.reload();
-    }
-  };
-})();
-</script>`;
-          if (html.includes('</body>')) {
-            html = html.replace('</body>', `${hmrScript}</body>`);
-          } else {
-            html += hmrScript;
-          }
-          content = Buffer.from(html, 'utf8');
-        }
+        content = Buffer.from(injectHmrScript(content.toString('utf8')), 'utf8');
       }
 
       res.writeHead(200, {
@@ -263,19 +349,35 @@ export async function startDevServer(options = {}) {
       return;
     }
 
-    // If request is for an HTML page or root fallback
-    const indexHtmlPath = path.join(rootDir, 'index.html');
-    const publicIndexHtml = path.join(rootDir, 'public', 'index.html');
-    const defaultHtml = fs.existsSync(indexHtmlPath) ? indexHtmlPath : (fs.existsSync(publicIndexHtml) ? publicIndexHtml : null);
+    // SPA Fallback Routing:
+    // If request has no extension or explicitly requests text/html, fallback to index.html
+    const hasExtension = Boolean(path.extname(pathname));
+    const acceptsHtml = (req.headers.accept || '').includes('text/html');
 
-    if (defaultHtml && (req.headers.accept || '').includes('text/html')) {
-      const html = fs.readFileSync(defaultHtml, 'utf8');
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      res.end(html);
-      return;
+    if (!hasExtension || acceptsHtml) {
+      const candidates = [
+        path.join(rootDir, 'index.html'),
+        path.join(rootDir, 'public', 'index.html'),
+        path.join(rootDir, 'dist', 'index.html')
+      ];
+      for (const cand of candidates) {
+        if (fs.existsSync(cand) && fs.statSync(cand).isFile()) {
+          const rawHtml = fs.readFileSync(cand, 'utf8');
+          const injectedHtml = injectHmrScript(rawHtml);
+          const buf = Buffer.from(injectedHtml, 'utf8');
+          res.writeHead(200, {
+            'Content-Type': 'text/html; charset=utf-8',
+            'Content-Length': buf.length,
+            'Access-Control-Allow-Origin': '*',
+            'Cache-Control': 'no-cache, no-store, must-revalidate'
+          });
+          res.end(buf);
+          return;
+        }
+      }
     }
 
-    res.writeHead(404, { 'Content-Type': 'text/plain' });
+    res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
     res.end(`404 Not Found: ${pathname}`);
   });
 
@@ -372,12 +474,20 @@ export async function startDevServer(options = {}) {
   }
 
   return new Promise((resolve, reject) => {
-    server.listen(port, () => {
-      logger.server(`Development server running at: ${colors.green(colors.bold(`http://localhost:${port}/`))}`);
-      logger.server(`Developer Dashboard active at: ${colors.brightCyan(colors.bold(`http://localhost:${port}/__zeropack`))}`);
-      logger.server(`HMR WebSocket endpoint active at: ${colors.cyan(colors.bold(`ws://localhost:${port}/__zeropack_hmr`))}`);
+    const listenHost = host === 'localhost' ? '127.0.0.1' : host;
+    server.listen(port, listenHost, () => {
+      const displayHost = host === '0.0.0.0' || host === '127.0.0.1' ? 'localhost' : host;
+      const serverUrl = `http://${displayHost}:${port}/`;
+      logger.server(`Development server running at: ${colors.green(colors.bold(serverUrl))}`);
+      logger.server(`Developer Dashboard active at: ${colors.brightCyan(colors.bold(`${serverUrl}__zeropack`))}`);
+      logger.server(`HMR WebSocket endpoint active at: ${colors.cyan(colors.bold(`ws://${displayHost}:${port}/__zeropack_hmr`))}`);
       logger.info(`Watching directory: ${colors.gray(watchDir)}`);
-      resolve({ server, broadcast, close: closeServer });
+
+      if (open) {
+        openBrowser(serverUrl);
+      }
+
+      resolve({ server, port, broadcast, close: closeServer });
     });
 
     server.on('error', (err) => {

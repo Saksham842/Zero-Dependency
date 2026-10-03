@@ -285,6 +285,178 @@ export function minifyCode(code, options = {}) {
 }
 
 /**
+ * Normalizes a define value into a valid JavaScript literal representation.
+ */
+export function normalizeDefineValue(val) {
+  if (typeof val === 'boolean' || typeof val === 'number') {
+    return String(val);
+  }
+  if (typeof val !== 'string') {
+    return JSON.stringify(val);
+  }
+  const trimmed = val.trim();
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'")) ||
+    trimmed === 'true' ||
+    trimmed === 'false' ||
+    trimmed === 'null' ||
+    trimmed === 'undefined' ||
+    !isNaN(Number(trimmed))
+  ) {
+    return trimmed;
+  }
+  return JSON.stringify(trimmed);
+}
+
+/**
+ * Scans JavaScript code and replaces identifiers defined in defineMap without
+ * replacing occurrences inside strings, comments, or larger identifiers.
+ */
+export function applyDefine(code, rawDefineMap) {
+  if (!rawDefineMap || typeof rawDefineMap !== 'object') return code;
+  const entries = Object.entries(rawDefineMap);
+  if (entries.length === 0) return code;
+
+  const defineMap = {};
+  for (const [k, v] of entries) {
+    defineMap[k] = normalizeDefineValue(v);
+  }
+
+  // Sort keys by length descending so longer keys match first (e.g. process.env.NODE_ENV before process.env)
+  const sortedKeys = Object.keys(defineMap).sort((a, b) => b.length - a.length);
+
+  let output = '';
+  let i = 0;
+  const len = code.length;
+
+  while (i < len) {
+    const ch = code[i];
+    const nextCh = i + 1 < len ? code[i + 1] : '';
+
+    // 1. Single-line comment
+    if (ch === '/' && nextCh === '/') {
+      const end = code.indexOf('\n', i + 2);
+      if (end === -1) {
+        output += code.slice(i);
+        break;
+      }
+      output += code.slice(i, end + 1);
+      i = end + 1;
+      continue;
+    }
+
+    // 2. Multi-line comment
+    if (ch === '/' && nextCh === '*') {
+      const end = code.indexOf('*/', i + 2);
+      if (end === -1) {
+        output += code.slice(i);
+        break;
+      }
+      output += code.slice(i, end + 2);
+      i = end + 2;
+      continue;
+    }
+
+    // 3. String literal: '...' or "..."
+    if (ch === "'" || ch === '"') {
+      const quote = ch;
+      let j = i + 1;
+      while (j < len) {
+        if (code[j] === '\\') {
+          j += 2;
+        } else if (code[j] === quote) {
+          j++;
+          break;
+        } else {
+          j++;
+        }
+      }
+      output += code.slice(i, j);
+      i = j;
+      continue;
+    }
+
+    // 4. Template literal: `...`
+    if (ch === '`') {
+      output += '`';
+      i++;
+      while (i < len && code[i] !== '`') {
+        if (code[i] === '\\') {
+          output += code[i] + (code[i + 1] || '');
+          i += 2;
+        } else if (code[i] === '$' && code[i + 1] === '{') {
+          output += '${';
+          i += 2;
+          let braceDepth = 1;
+          let exprStart = i;
+          while (i < len && braceDepth > 0) {
+            const ech = code[i];
+            if (ech === "'" || ech === '"' || ech === '`') {
+              const eq = ech;
+              i++;
+              while (i < len && code[i] !== eq) {
+                if (code[i] === '\\') i++;
+                i++;
+              }
+              if (i < len) i++;
+            } else if (ech === '{') {
+              braceDepth++;
+              i++;
+            } else if (ech === '}') {
+              braceDepth--;
+              if (braceDepth === 0) {
+                const expr = code.slice(exprStart, i);
+                output += applyDefine(expr, defineMap);
+                output += '}';
+                i++;
+                break;
+              }
+              i++;
+            } else {
+              i++;
+            }
+          }
+        } else {
+          output += code[i];
+          i++;
+        }
+      }
+      if (i < len && code[i] === '`') {
+        output += '`';
+        i++;
+      }
+      continue;
+    }
+
+    // 5. Check if starting identifier matches any define key
+    let matched = false;
+    for (const key of sortedKeys) {
+      if (code.startsWith(key, i)) {
+        const prevChar = i > 0 ? code[i - 1] : '';
+        const isPrevIdent = /[a-zA-Z0-9_$.]/.test(prevChar);
+        const nextCharAfter = i + key.length < len ? code[i + key.length] : '';
+        const isNextIdent = /[a-zA-Z0-9_$.]/.test(nextCharAfter);
+
+        if (!isPrevIdent && !isNextIdent) {
+          output += defineMap[key];
+          i += key.length;
+          matched = true;
+          break;
+        }
+      }
+    }
+
+    if (!matched) {
+      output += ch;
+      i++;
+    }
+  }
+
+  return output;
+}
+
+/**
  * Bundles the dependency graph into a deterministic, single-file IIFE bundle
  * and collects rich build metrics for the ZeroPack dashboard.
  */
@@ -294,6 +466,7 @@ export function generateBundle(graph, options = {}) {
     minify = false,
     hmr = false,
     sourcemap = false,
+    define = {},
     outFile = 'dist/bundle.js'
   } = options;
 
@@ -398,7 +571,12 @@ export function generateBundle(graph, options = {}) {
     modulesString += `// [ZeroPack Module: ${mod.relativePath}]\n`;
     addEmptyLines(1);
 
-    const codeLines = mod.code.split('\n');
+    let moduleCode = mod.code;
+    if (define && Object.keys(define).length > 0) {
+      moduleCode = applyDefine(moduleCode, define);
+    }
+
+    const codeLines = moduleCode.split('\n');
     for (let l = 0; l < codeLines.length; l++) {
       modulesString += codeLines[l] + '\n';
       lineMappings.push([[0, modIdx, l, 0]]);

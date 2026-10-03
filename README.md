@@ -91,32 +91,31 @@ Every industry-standard npm library has been replaced with a native Node.js core
 
 ## 🚀 Quick Start
 
-### 1. Clone & Run
+### 1. Zero-Config Experience (User shouldn't have to do anything!)
 ```bash
-# Clone the repository
-git clone https://github.com/your-username/zeropack.git
-cd zeropack
+# Running with no arguments auto-detects entry, finds an open port, and opens browser:
+zeropack
 
-# No npm install needed! Run directly:
-node src/cli.js --help
+# Or using the standalone executable directly:
+node zeropack.js
 ```
 
-### 2. Build Your Project
+### 2. Scaffold a New Project
 ```bash
-# Basic bundle
-node src/cli.js --entry src/index.js --out dist/bundle.js
-
-# Production minified bundle with source maps
-node src/cli.js --entry src/index.js --out dist/bundle.js --minify --sourcemap
-
-# Quick npm shortcut
-npm run build
+# Scaffold a minimal zero-dependency starter project:
+zeropack init my-new-app
 ```
 
-### 3. Start Development Server with Live HMR
+### 3. Build & Serve Subcommands
 ```bash
-npm run dev
-# Opens dev server on http://localhost:3000 with live WebSocket reloader
+# One-shot minified production build with source maps
+zeropack build --minify --sourcemap
+
+# Start dev server with Live WebSocket HMR
+zeropack serve
+
+# Compile-time variable replacement (e.g., React / modern libraries)
+zeropack build --define process.env.NODE_ENV=production
 ```
 
 ---
@@ -125,29 +124,43 @@ npm run dev
 
 ```
 USAGE:
-  zeropack [options]
-  node src/cli.js [options]
-  node zeropack.js [options]
+  zeropack [subcommand] [options]
+  node src/cli.js [subcommand] [options]
+  node zeropack.js [subcommand] [options]
+
+SUBCOMMANDS:
+  init [dir]         Scaffold a minimal ZeroPack starter project
+  build [entry]      One-shot bundle production build
+  serve [entry]      Start dev server with Live Reload & RFC 6455 WebSocket HMR
 
 OPTIONS:
-  --entry <path>     Entry JavaScript/TypeScript file (default: src/index.js)
-  --out <path>       Output bundle path (default: dist/bundle.js)
-  --serve            Start native HTTP static dev server & RFC 6455 WebSocket HMR
-  --port <number>    Port for the dev server (default: 3000)
-  --minify           Minify output bundle (removes comments & whitespace)
-  --sourcemap        Generate Source Map v3 (.map file)
-  --env <path>       Custom path to .env file (default: .env)
-  --help, -h         Display this help message
+  --entry, -e <path>     Entry file (auto-detected: package.json module/main, src/index.js, index.js)
+  --out, -o <path>       Output bundle path (default: dist/bundle.js)
+  --serve                Start native HTTP static dev server & RFC 6455 WebSocket HMR
+  --port, -p <number>    Dev server port (default: 3000, auto-finds free port if busy)
+  --host <string>        Dev server host (default: localhost)
+  --open                 Open browser when dev server starts (default for zero-arg invocation)
+  --no-open              Do not open browser
+  --minify, -m           Minify output bundle (removes comments & extraneous whitespace)
+  --sourcemap, -s        Generate Source Map v3 (.map file)
+  --config, -c <path>    Path to configuration file (default: zeropack.config.json)
+  --define <key=val>     Compile-time define replacement (e.g. process.env.NODE_ENV=production)
+  --env <path>           Custom path to .env file (default: .env)
+  --version, -v          Display ZeroPack version
+  --help, -h             Display this help message
 
-EXAMPLES:
-  # Minified production build with source maps
-  node src/cli.js --entry src/index.js --out dist/bundle.js --minify --sourcemap
-
-  # Development server on custom port
-  node src/cli.js --entry src/index.js --serve --port 8080
-
-  # Compile single-file standalone distribution & verify
-  npm run build-standalone
+CONFIGURATION FILE (zeropack.config.json):
+{
+  "entry": "src/index.js",
+  "out": "dist/bundle.js",
+  "port": 3000,
+  "minify": false,
+  "sourcemap": true,
+  "define": {
+    "process.env.NODE_ENV": "development",
+    "API_URL": "https://api.example.com"
+  }
+}
 ```
 
 ---

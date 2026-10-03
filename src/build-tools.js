@@ -29,6 +29,8 @@ export function compileSingleFile() {
     "import process from 'node:process';",
     "import http from 'node:http';",
     "import crypto from 'node:crypto';",
+    "import net from 'node:net';",
+    "import { exec } from 'node:child_process';",
     "import * as nodeModule from 'node:module';",
     "import { parseArgs } from 'node:util';",
     "import { StringDecoder } from 'node:string_decoder';"
@@ -37,6 +39,11 @@ export function compileSingleFile() {
   for (const modName of modules) {
     const modPath = path.join(SRC_DIR, modName);
     let code = fs.readFileSync(modPath, 'utf8');
+
+    // Strip shebang if present
+    if (code.startsWith('#!')) {
+      code = code.replace(/^#!.*?\r?\n/, '');
+    }
 
     // Remove local imports between our src modules
     code = code.replace(/import\s+[\s\S]*?\s+from\s+['"]\.\/[^'"]+['"];?/g, '');

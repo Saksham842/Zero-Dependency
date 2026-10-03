@@ -4,7 +4,7 @@
  * Zero-Dependency JavaScript Bundler, Minifier & RFC 6455 HMR Dev Server
  * Built exclusively with Node.js Native Core Libraries.
  * 
- * Auto-generated on: 2026-10-03T22:15:54.583Z
+ * Auto-generated on: 2026-10-03T22:31:18.527Z
  */
 
 import fs from 'node:fs';
@@ -12,6 +12,8 @@ import path from 'node:path';
 import process from 'node:process';
 import http from 'node:http';
 import crypto from 'node:crypto';
+import net from 'node:net';
+import { exec } from 'node:child_process';
 import * as nodeModule from 'node:module';
 import { parseArgs } from 'node:util';
 import { StringDecoder } from 'node:string_decoder';
@@ -19,6 +21,202 @@ import { StringDecoder } from 'node:string_decoder';
 // ==========================================
 // Module: cli.js
 // ==========================================
+// -----------------------------------------------------------------------------
+// 0. Zero-Config Auto-Detector & Scaffolder
+// -----------------------------------------------------------------------------
+
+/**
+ * Auto-detects the project entry point in standard locations.
+ */
+export function autoDetectEntry(cwd = process.cwd(), preferredEntry = null) {
+  if (preferredEntry) {
+    const resolved = path.isAbsolute(preferredEntry) ? preferredEntry : path.resolve(cwd, preferredEntry);
+    if (fs.existsSync(resolved)) {
+      return path.relative(cwd, resolved) || preferredEntry;
+    }
+  }
+
+  // 1. Check package.json "module" or "main"
+  const pkgPath = path.resolve(cwd, 'package.json');
+  if (fs.existsSync(pkgPath)) {
+    try {
+      const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+      if (typeof pkg.module === 'string') {
+        const candidate = path.resolve(cwd, pkg.module);
+        if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
+          return pkg.module;
+        }
+      }
+      if (typeof pkg.main === 'string') {
+        const candidate = path.resolve(cwd, pkg.main);
+        if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
+          if (!pkg.main.includes('cli.js') && !pkg.main.includes('zeropack.js')) {
+            return pkg.main;
+          }
+        }
+      }
+    } catch (_) {}
+  }
+
+  // 2. Candidate entry files in conventional locations
+  const candidates = [
+    'src/index.js',
+    'src/index.ts',
+    'src/index.jsx',
+    'src/index.tsx',
+    'index.js',
+    'index.ts',
+    'index.jsx',
+    'index.tsx',
+    'src/main.js',
+    'src/main.ts',
+    'src/main.jsx',
+    'src/main.tsx',
+    'main.js',
+    'main.ts'
+  ];
+
+  for (const cand of candidates) {
+    const candPath = path.resolve(cwd, cand);
+    if (fs.existsSync(candPath) && fs.statSync(candPath).isFile()) {
+      return cand;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Loads zeropack.config.json if present.
+ */
+export function loadConfig(configPath = null, cwd = process.cwd()) {
+  const targetPath = configPath
+    ? (path.isAbsolute(configPath) ? configPath : path.resolve(cwd, configPath))
+    : path.resolve(cwd, 'zeropack.config.json');
+
+  if (fs.existsSync(targetPath)) {
+    try {
+      const content = fs.readFileSync(targetPath, 'utf8');
+      const parsed = JSON.parse(content);
+      return { config: parsed, path: targetPath, exists: true };
+    } catch (err) {
+      logger.warn(`Failed to parse configuration file at ${targetPath}: ${err.message}`);
+      return { config: {}, path: targetPath, exists: true, error: err };
+    }
+  }
+
+  return { config: {}, path: targetPath, exists: false };
+}
+
+/**
+ * Scaffolds a minimal ZeroPack starter project.
+ */
+export function scaffoldProject(targetDir = '.') {
+  const resolvedDir = path.isAbsolute(targetDir) ? targetDir : path.resolve(process.cwd(), targetDir);
+  if (!fs.existsSync(resolvedDir)) {
+    fs.mkdirSync(resolvedDir, { recursive: true });
+  }
+
+  const srcDir = path.join(resolvedDir, 'src');
+  if (!fs.existsSync(srcDir)) {
+    fs.mkdirSync(srcDir, { recursive: true });
+  }
+
+  const files = [
+    {
+      path: path.join(resolvedDir, 'index.html'),
+      content: `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ZeroPack App</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      margin: 0;
+      padding: 2rem;
+      background: #0d1117;
+      color: #c9d1d9;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 80vh;
+    }
+    h1 { color: #58a6ff; margin-bottom: 0.5rem; }
+    p { color: #8b949e; line-height: 1.6; }
+    code { background: #161b22; padding: 0.2em 0.4em; border-radius: 4px; color: #79c0ff; }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <script src="/dist/bundle.js"></script>
+</body>
+</html>
+`
+    },
+    {
+      path: path.join(srcDir, 'index.js'),
+      content: `// ZeroPack entry point
+const app = document.getElementById('app');
+if (app) {
+  app.innerHTML = \`
+    <h1>⚡ Welcome to ZeroPack</h1>
+    <p>Zero-dependency JS bundler &amp; RFC 6455 HMR dev server.</p>
+    <p>Edit <code>src/index.js</code> and save to see instant HMR updates.</p>
+  \`;
+}
+console.log('[ZeroPack] App initialized successfully!');
+`
+    },
+    {
+      path: path.join(resolvedDir, 'zeropack.config.json'),
+      content: JSON.stringify({
+        entry: 'src/index.js',
+        out: 'dist/bundle.js',
+        port: 3000,
+        minify: false,
+        sourcemap: true,
+        define: {
+          "process.env.NODE_ENV": "development"
+        }
+      }, null, 2) + '\n'
+    }
+  ];
+
+  const pkgJsonPath = path.join(resolvedDir, 'package.json');
+  if (!fs.existsSync(pkgJsonPath)) {
+    files.push({
+      path: pkgJsonPath,
+      content: JSON.stringify({
+        name: path.basename(resolvedDir) || 'zeropack-app',
+        version: '1.0.0',
+        type: 'module',
+        scripts: {
+          dev: 'zeropack',
+          build: 'zeropack build'
+        }
+      }, null, 2) + '\n'
+    });
+  }
+
+  logger.info(`Scaffolding new ZeroPack project in ${colors.cyan(resolvedDir)}...`);
+  let createdCount = 0;
+  for (const file of files) {
+    if (fs.existsSync(file.path)) {
+      logger.warn(`File already exists: ${colors.gray(path.relative(resolvedDir, file.path))} (skipped)`);
+    } else {
+      fs.writeFileSync(file.path, file.content, 'utf8');
+      logger.success(`Created ${colors.green(path.relative(resolvedDir, file.path))}`);
+      createdCount++;
+    }
+  }
+
+  logger.success(`ZeroPack project initialized! (${createdCount} file(s) created)`);
+  logger.info(`Run ${colors.cyan('zeropack')} to start dev server with HMR.`);
+}
+
 // -----------------------------------------------------------------------------
 // 1. Terminal Logger (Zero-dependency ANSI Color Utility)
 // -----------------------------------------------------------------------------
@@ -144,27 +342,42 @@ export function printHelp() {
   printBanner();
   console.log(`
 ${colors.bold('USAGE:')}
-  ${colors.green('zeropack')} [options]
-  ${colors.green('node src/cli.js')} [options]
+  ${colors.green('zeropack')} [subcommand] [options]
+  ${colors.green('node src/cli.js')} [subcommand] [options]
+
+${colors.bold('SUBCOMMANDS:')}
+  ${colors.yellow('init [dir]')}         Scaffold a minimal ZeroPack starter project
+  ${colors.yellow('build [entry]')}      One-shot bundle production build
+  ${colors.yellow('serve [entry]')}      Start dev server with Live Reload & RFC 6455 WebSocket HMR
 
 ${colors.bold('OPTIONS:')}
-  ${colors.yellow('--entry <path>')}     Entry JavaScript/TypeScript file ${colors.dim('(default: src/index.js)')}
-  ${colors.yellow('--out <path>')}       Output bundle path ${colors.dim('(default: dist/bundle.js)')}
-  ${colors.yellow('--serve')}            Start native HTTP static dev server & RFC 6455 WebSocket HMR
-  ${colors.yellow('--port <number>')}    Port for the dev server ${colors.dim('(default: 3000)')}
-  ${colors.yellow('--minify')}           Minify output bundle (removes comments & whitespace)
-  ${colors.yellow('--env <path>')}       Custom path to .env file ${colors.dim('(default: .env)')}
-  ${colors.yellow('--help, -h')}         Display this help message
+  ${colors.yellow('--entry, -e <path>')}     Entry JavaScript/TypeScript file ${colors.dim('(auto-detected by default)')}
+  ${colors.yellow('--out, -o <path>')}       Output bundle path ${colors.dim('(default: dist/bundle.js)')}
+  ${colors.yellow('--serve')}                Start native HTTP static dev server & RFC 6455 WebSocket HMR
+  ${colors.yellow('--port, -p <number>')}    Dev server port ${colors.dim('(default: 3000, auto-finds free port)')}
+  ${colors.yellow('--host <string>')}        Dev server host ${colors.dim('(default: localhost)')}
+  ${colors.yellow('--open')}                 Open browser when dev server starts ${colors.dim('(default for zeropack with no args)')}
+  ${colors.yellow('--no-open')}              Do not open browser
+  ${colors.yellow('--minify, -m')}           Minify output bundle (removes comments & whitespace)
+  ${colors.yellow('--sourcemap, -s')}        Generate v3 source maps (.map file)
+  ${colors.yellow('--config, -c <path>')}    Path to configuration file ${colors.dim('(default: zeropack.config.json)')}
+  ${colors.yellow('--define <key=val>')}     Compile-time define replacement ${colors.dim('(e.g. process.env.NODE_ENV=production)')}
+  ${colors.yellow('--env <path>')}           Custom path to .env file ${colors.dim('(default: .env)')}
+  ${colors.yellow('--version, -v')}          Display ZeroPack version
+  ${colors.yellow('--help, -h')}             Display this help message
 
 ${colors.bold('EXAMPLES:')}
-  ${colors.dim('# Bundle with minification')}
-  ${colors.cyan('zeropack --entry src/index.js --out dist/bundle.js --minify')}
+  ${colors.dim('# Zero-config: auto-detect entry, start dev server, open browser')}
+  ${colors.cyan('zeropack')}
 
-  ${colors.dim('# Start dev server with Live Reload / WebSocket HMR on port 8080')}
-  ${colors.cyan('zeropack --entry src/index.js --serve --port 8080')}
+  ${colors.dim('# Scaffold a new minimal starter project')}
+  ${colors.cyan('zeropack init')}
 
-  ${colors.dim('# Standalone single-file compiler & verification')}
-  ${colors.cyan('npm run build-standalone')}
+  ${colors.dim('# One-shot minified production build with sourcemaps')}
+  ${colors.cyan('zeropack build --minify --sourcemap')}
+
+  ${colors.dim('# Compile-time variable replacement')}
+  ${colors.cyan('zeropack build --define process.env.NODE_ENV=production')}
 `);
 }
 
@@ -173,39 +386,20 @@ ${colors.bold('EXAMPLES:')}
 // -----------------------------------------------------------------------------
 export function parseCliArgs(args = process.argv.slice(2)) {
   const options = {
-    entry: {
-      type: 'string',
-      default: 'src/index.js'
-    },
-    out: {
-      type: 'string',
-      default: 'dist/bundle.js'
-    },
-    serve: {
-      type: 'boolean',
-      default: false
-    },
-    port: {
-      type: 'string',
-      default: '3000'
-    },
-    minify: {
-      type: 'boolean',
-      default: false
-    },
-    sourcemap: {
-      type: 'boolean',
-      default: false
-    },
-    env: {
-      type: 'string',
-      default: '.env'
-    },
-    help: {
-      type: 'boolean',
-      short: 'h',
-      default: false
-    }
+    entry: { type: 'string', short: 'e' },
+    out: { type: 'string', short: 'o' },
+    serve: { type: 'boolean' },
+    port: { type: 'string', short: 'p' },
+    host: { type: 'string' },
+    minify: { type: 'boolean', short: 'm' },
+    sourcemap: { type: 'boolean', short: 's' },
+    open: { type: 'boolean' },
+    'no-open': { type: 'boolean' },
+    config: { type: 'string', short: 'c' },
+    define: { type: 'string' },
+    env: { type: 'string', default: '.env' },
+    version: { type: 'boolean', short: 'v', default: false },
+    help: { type: 'boolean', short: 'h', default: false }
   };
 
   try {
@@ -216,22 +410,117 @@ export function parseCliArgs(args = process.argv.slice(2)) {
       strict: false
     });
 
-    // Support positional entry argument if provided (e.g. `zeropack src/main.js`)
-    let entry = values.entry;
-    if (positionals.length > 0 && values.entry === 'src/index.js') {
-      entry = positionals[0];
+    // Parse custom --define and --define.KEY=VAL arguments
+    const cliDefine = {};
+    for (let i = 0; i < args.length; i++) {
+      const arg = args[i];
+      if (arg.startsWith('--define.')) {
+        const eq = arg.indexOf('=');
+        if (eq !== -1) {
+          cliDefine[arg.slice(9, eq)] = arg.slice(eq + 1);
+        }
+      } else if (arg === '--define' && i + 1 < args.length) {
+        const next = args[i + 1];
+        const eq = next.indexOf('=');
+        if (eq !== -1) {
+          cliDefine[next.slice(0, eq)] = next.slice(eq + 1);
+          i++;
+        }
+      }
     }
 
+    // Filter positionals that are not key=value pairs
+    const cleanPositionals = positionals.filter(p => !p.includes('='));
+
+    // Determine subcommand vs positional entry
+    let subcommand = null;
+    let targetEntry = values.entry;
+    let targetDir = '.';
+    const validSubcommands = ['init', 'build', 'serve'];
+
+    if (cleanPositionals.length > 0) {
+      if (validSubcommands.includes(cleanPositionals[0])) {
+        subcommand = cleanPositionals[0];
+        if (subcommand === 'init') {
+          targetDir = cleanPositionals[1] || '.';
+        } else if (cleanPositionals[1] && !values.entry) {
+          targetEntry = cleanPositionals[1];
+        }
+      } else if (!values.entry) {
+        targetEntry = cleanPositionals[0];
+      }
+    }
+
+    // Load zeropack.config.json if present
+    const fileConfig = loadConfig(values.config, process.cwd());
+    const cfg = fileConfig.config || {};
+
+    // Mode determination:
+    // If subcommand is 'init' -> init mode
+    // If subcommand is 'build' -> serve: false
+    // If subcommand is 'serve' -> serve: true
+    // If no subcommand:
+    //   If values.serve explicitly passed -> values.serve
+    //   Else if values.minify or values.out passed without serve -> serve: false
+    //   Else if args has 0 items (zero-config) -> serve: true
+    //   Else if cfg.serve !== undefined -> Boolean(cfg.serve)
+    //   Else -> false
+    let serve = false;
+    if (subcommand === 'serve') {
+      serve = true;
+    } else if (subcommand === 'build') {
+      serve = Boolean(values.serve);
+    } else if (values.serve !== undefined) {
+      serve = Boolean(values.serve);
+    } else if (args.length === 0) {
+      serve = true; // Zero-config defaults to dev server!
+    } else if (cfg.serve !== undefined) {
+      serve = Boolean(cfg.serve);
+    }
+
+    // Browser opening behavior:
+    // If --no-open explicitly passed -> false
+    // Else if --open explicitly passed -> true
+    // Else if cfg.open !== undefined -> Boolean(cfg.open)
+    // Else if running zero-config with no arguments -> true
+    let open = false;
+    if (values['no-open']) {
+      open = false;
+    } else if (values.open !== undefined) {
+      open = Boolean(values.open);
+    } else if (cfg.open !== undefined) {
+      open = Boolean(cfg.open);
+    } else if (args.length === 0 && serve) {
+      open = true;
+    }
+
+    // Auto-detect entry if not explicitly given
+    const entry = targetEntry || cfg.entry || autoDetectEntry(process.cwd()) || 'src/index.js';
+    const out = values.out || cfg.out || 'dist/bundle.js';
+    const port = parseInt(values.port || cfg.port, 10) || 3000;
+    const host = values.host || cfg.host || 'localhost';
+    const minify = values.minify !== undefined ? Boolean(values.minify) : Boolean(cfg.minify);
+    const sourcemap = values.sourcemap !== undefined ? Boolean(values.sourcemap) : Boolean(cfg.sourcemap);
+    const define = { ...(cfg.define || {}), ...cliDefine };
+
     return {
+      subcommand,
+      targetDir,
       entry,
-      out: values.out,
-      serve: Boolean(values.serve),
-      port: parseInt(values.port, 10) || 3000,
-      minify: Boolean(values.minify),
-      sourcemap: Boolean(values.sourcemap),
-      env: values.env,
+      out,
+      serve,
+      port,
+      host,
+      open,
+      minify,
+      sourcemap,
+      define,
+      env: values.env || '.env',
+      version: Boolean(values.version),
       help: Boolean(values.help),
-      positionals
+      positionals,
+      configPath: fileConfig.path,
+      hasConfigFile: fileConfig.exists
     };
   } catch (err) {
     logger.error(`Argument parsing error: ${err.message}`);
@@ -246,17 +535,43 @@ export function parseCliArgs(args = process.argv.slice(2)) {
 export async function runCli(args = process.argv.slice(2)) {
   const config = parseCliArgs(args);
 
+  if (config.version) {
+    console.log('zeropack v1.0.0');
+    return;
+  }
+
   if (config.help) {
     printHelp();
     return;
   }
 
+  // Handle 'init' subcommand
+  if (config.subcommand === 'init') {
+    scaffoldProject(config.targetDir);
+    return;
+  }
+
   printBanner();
+
+  if (config.hasConfigFile) {
+    logger.info(`Loaded configuration from ${colors.cyan(config.configPath)}`);
+  }
 
   // Load .env automatically
   const envResult = loadEnv(config.env);
   if (envResult.loaded) {
     logger.info(`Loaded ${colors.bold(envResult.count)} environment variables from ${colors.dim(envResult.path)}`);
+  }
+
+  // Verify entry file exists
+  const resolvedEntry = path.resolve(process.cwd(), config.entry);
+  if (!fs.existsSync(resolvedEntry)) {
+    logger.warn(`No entry file found at ${colors.yellow(config.entry)}`);
+    logger.info(`Run ${colors.cyan('zeropack init')} to scaffold a minimal project, or pass ${colors.cyan('--entry <path>')}.`);
+    if (!config.serve) {
+      process.exit(1);
+    }
+    return;
   }
 
   // Dynamic import of bundler/server so CLI file can be run independently or concatenated
@@ -268,12 +583,16 @@ export async function runCli(args = process.argv.slice(2)) {
   logger.build(`Output Path:  ${colors.cyan(config.out)}`);
   logger.build(`Minification: ${config.minify ? colors.green('ENABLED') : colors.gray('DISABLED')}`);
   logger.build(`Source Map:   ${config.sourcemap ? colors.green('ENABLED') : colors.gray('DISABLED')}`);
+  if (Object.keys(config.define).length > 0) {
+    logger.build(`Defines:      ${colors.cyan(JSON.stringify(config.define))}`);
+  }
 
   try {
     const graph = buildDependencyGraph(config.entry);
     const result = bundleToFile(graph, config.out, {
       minify: config.minify,
       sourcemap: config.sourcemap,
+      define: config.define,
       entryPath: config.entry
     });
 
@@ -288,10 +607,13 @@ export async function runCli(args = process.argv.slice(2)) {
       
       await startDevServer({
         port: config.port,
+        host: config.host,
+        open: config.open,
         entry: config.entry,
         out: config.out,
         minify: config.minify,
         sourcemap: config.sourcemap,
+        define: config.define,
         rootDir: process.cwd(),
         stats: result.stats
       });
@@ -1271,6 +1593,178 @@ export function minifyCode(code, options = {}) {
 }
 
 /**
+ * Normalizes a define value into a valid JavaScript literal representation.
+ */
+export function normalizeDefineValue(val) {
+  if (typeof val === 'boolean' || typeof val === 'number') {
+    return String(val);
+  }
+  if (typeof val !== 'string') {
+    return JSON.stringify(val);
+  }
+  const trimmed = val.trim();
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'")) ||
+    trimmed === 'true' ||
+    trimmed === 'false' ||
+    trimmed === 'null' ||
+    trimmed === 'undefined' ||
+    !isNaN(Number(trimmed))
+  ) {
+    return trimmed;
+  }
+  return JSON.stringify(trimmed);
+}
+
+/**
+ * Scans JavaScript code and replaces identifiers defined in defineMap without
+ * replacing occurrences inside strings, comments, or larger identifiers.
+ */
+export function applyDefine(code, rawDefineMap) {
+  if (!rawDefineMap || typeof rawDefineMap !== 'object') return code;
+  const entries = Object.entries(rawDefineMap);
+  if (entries.length === 0) return code;
+
+  const defineMap = {};
+  for (const [k, v] of entries) {
+    defineMap[k] = normalizeDefineValue(v);
+  }
+
+  // Sort keys by length descending so longer keys match first (e.g. process.env.NODE_ENV before process.env)
+  const sortedKeys = Object.keys(defineMap).sort((a, b) => b.length - a.length);
+
+  let output = '';
+  let i = 0;
+  const len = code.length;
+
+  while (i < len) {
+    const ch = code[i];
+    const nextCh = i + 1 < len ? code[i + 1] : '';
+
+    // 1. Single-line comment
+    if (ch === '/' && nextCh === '/') {
+      const end = code.indexOf('\n', i + 2);
+      if (end === -1) {
+        output += code.slice(i);
+        break;
+      }
+      output += code.slice(i, end + 1);
+      i = end + 1;
+      continue;
+    }
+
+    // 2. Multi-line comment
+    if (ch === '/' && nextCh === '*') {
+      const end = code.indexOf('*/', i + 2);
+      if (end === -1) {
+        output += code.slice(i);
+        break;
+      }
+      output += code.slice(i, end + 2);
+      i = end + 2;
+      continue;
+    }
+
+    // 3. String literal: '...' or "..."
+    if (ch === "'" || ch === '"') {
+      const quote = ch;
+      let j = i + 1;
+      while (j < len) {
+        if (code[j] === '\\') {
+          j += 2;
+        } else if (code[j] === quote) {
+          j++;
+          break;
+        } else {
+          j++;
+        }
+      }
+      output += code.slice(i, j);
+      i = j;
+      continue;
+    }
+
+    // 4. Template literal: `...`
+    if (ch === '`') {
+      output += '`';
+      i++;
+      while (i < len && code[i] !== '`') {
+        if (code[i] === '\\') {
+          output += code[i] + (code[i + 1] || '');
+          i += 2;
+        } else if (code[i] === '$' && code[i + 1] === '{') {
+          output += '${';
+          i += 2;
+          let braceDepth = 1;
+          let exprStart = i;
+          while (i < len && braceDepth > 0) {
+            const ech = code[i];
+            if (ech === "'" || ech === '"' || ech === '`') {
+              const eq = ech;
+              i++;
+              while (i < len && code[i] !== eq) {
+                if (code[i] === '\\') i++;
+                i++;
+              }
+              if (i < len) i++;
+            } else if (ech === '{') {
+              braceDepth++;
+              i++;
+            } else if (ech === '}') {
+              braceDepth--;
+              if (braceDepth === 0) {
+                const expr = code.slice(exprStart, i);
+                output += applyDefine(expr, defineMap);
+                output += '}';
+                i++;
+                break;
+              }
+              i++;
+            } else {
+              i++;
+            }
+          }
+        } else {
+          output += code[i];
+          i++;
+        }
+      }
+      if (i < len && code[i] === '`') {
+        output += '`';
+        i++;
+      }
+      continue;
+    }
+
+    // 5. Check if starting identifier matches any define key
+    let matched = false;
+    for (const key of sortedKeys) {
+      if (code.startsWith(key, i)) {
+        const prevChar = i > 0 ? code[i - 1] : '';
+        const isPrevIdent = /[a-zA-Z0-9_$.]/.test(prevChar);
+        const nextCharAfter = i + key.length < len ? code[i + key.length] : '';
+        const isNextIdent = /[a-zA-Z0-9_$.]/.test(nextCharAfter);
+
+        if (!isPrevIdent && !isNextIdent) {
+          output += defineMap[key];
+          i += key.length;
+          matched = true;
+          break;
+        }
+      }
+    }
+
+    if (!matched) {
+      output += ch;
+      i++;
+    }
+  }
+
+  return output;
+}
+
+/**
  * Bundles the dependency graph into a deterministic, single-file IIFE bundle
  * and collects rich build metrics for the ZeroPack dashboard.
  */
@@ -1280,6 +1774,7 @@ export function generateBundle(graph, options = {}) {
     minify = false,
     hmr = false,
     sourcemap = false,
+    define = {},
     outFile = 'dist/bundle.js'
   } = options;
 
@@ -1384,7 +1879,12 @@ export function generateBundle(graph, options = {}) {
     modulesString += `// [ZeroPack Module: ${mod.relativePath}]\n`;
     addEmptyLines(1);
 
-    const codeLines = mod.code.split('\n');
+    let moduleCode = mod.code;
+    if (define && Object.keys(define).length > 0) {
+      moduleCode = applyDefine(moduleCode, define);
+    }
+
+    const codeLines = moduleCode.split('\n');
     for (let l = 0; l < codeLines.length; l++) {
       modulesString += codeLines[l] + '\n';
       lineMappings.push([[0, modIdx, l, 0]]);
@@ -1990,6 +2490,60 @@ export const DASHBOARD_HTML = `<!DOCTYPE html>
 // ==========================================
 // Module: server.js
 // ==========================================
+/**
+ * Checks whether a TCP port is currently available to listen on.
+ */
+export function isPortAvailable(port, host = '0.0.0.0') {
+  return new Promise((resolve) => {
+    const tester = net.createServer();
+    tester.once('error', () => {
+      resolve(false);
+    });
+    tester.once('listening', () => {
+      tester.close(() => {
+        resolve(true);
+      });
+    });
+    tester.listen(port, host);
+  });
+}
+
+/**
+ * Finds the first available TCP port starting from startPort.
+ */
+export async function findAvailablePort(startPort = 3000, host = '0.0.0.0', maxAttempts = 100) {
+  const numericPort = parseInt(startPort, 10) || 3000;
+  for (let p = numericPort; p < numericPort + maxAttempts; p++) {
+    const free = await isPortAvailable(p, host);
+    if (free) return p;
+  }
+  return numericPort;
+}
+
+/**
+ * Automatically opens the given URL in the default web browser.
+ * Silently ignores failures and skips execution in CI or non-interactive environments.
+ */
+export function openBrowser(url) {
+  if (process.env.CI || process.env.NODE_ENV === 'test' || !process.stdout.isTTY) {
+    return;
+  }
+  try {
+    const platform = process.platform;
+    let cmd = '';
+    if (platform === 'win32') {
+      cmd = `start "" "${url}"`;
+    } else if (platform === 'darwin') {
+      cmd = `open "${url}"`;
+    } else {
+      cmd = `xdg-open "${url}"`;
+    }
+    exec(cmd, () => {});
+  } catch (_) {
+    // Silent catch
+  }
+}
+
 // -----------------------------------------------------------------------------
 // 1. Native MIME Type Lookup Table
 // -----------------------------------------------------------------------------
@@ -2112,13 +2666,26 @@ export function decodeWebSocketFrame(buffer) {
 // -----------------------------------------------------------------------------
 export async function startDevServer(options = {}) {
   const {
-    port = 3000,
+    port: requestedPort = 3000,
+    host = 'localhost',
+    autoPort = true,
+    open = false,
     entry = 'src/index.js',
     out = 'dist/bundle.js',
     minify = false,
+    sourcemap = false,
+    define = {},
     rootDir = process.cwd(),
     stats: initialStats = null
   } = options;
+
+  let port = requestedPort;
+  if (autoPort) {
+    port = await findAvailablePort(requestedPort, host === 'localhost' ? '127.0.0.1' : host);
+    if (port !== requestedPort) {
+      logger.warn(`Port ${colors.yellow(requestedPort)} was in use, switched to available port ${colors.green(colors.bold(port))}`);
+    }
+  }
 
   let currentStats = initialStats;
   const activeSockets = new Set();
@@ -2141,7 +2708,7 @@ export async function startDevServer(options = {}) {
   function compile() {
     try {
       const graph = buildDependencyGraph(entry, rootDir);
-      const result = bundleToFile(graph, out, { minify, hmr: true });
+      const result = bundleToFile(graph, out, { minify, sourcemap, define, hmr: true });
       currentStats = result.stats;
       logger.hmr(`Rebuilt bundle: ${colors.green(result.size + ' bytes')} (${colors.gray(result.hash.slice(0, 10))})`);
       return result;
@@ -2153,6 +2720,32 @@ export async function startDevServer(options = {}) {
 
   if (!currentStats) {
     compile();
+  }
+
+  // Helper to inject WebSocket client script into HTML files
+  function injectHmrScript(htmlContent) {
+    if (htmlContent.includes('__zeropack_hmr')) return htmlContent;
+    const hmrScript = `
+<script>
+(function() {
+  var protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  var ws = new WebSocket(protocol + '//' + window.location.host + '/__zeropack_hmr');
+  ws.onopen = function() { console.log('[ZeroPack DevServer] Connected to live reload'); };
+  ws.onmessage = function(e) {
+    try {
+      var data = JSON.parse(e.data);
+      if (data.type === 'reload') {
+        console.log('[ZeroPack DevServer] Reloading page...');
+        window.location.reload();
+      }
+    } catch(err) {}
+  };
+})();
+</script>`;
+    if (htmlContent.includes('</body>')) {
+      return htmlContent.replace('</body>', `${hmrScript}</body>`);
+    }
+    return htmlContent + hmrScript;
   }
 
   // HTTP Server
@@ -2190,6 +2783,20 @@ export async function startDevServer(options = {}) {
       pathname = '/index.html';
     }
 
+    // Directory traversal security check
+    if (req.url.includes('..') || req.url.includes('\\') || pathname.includes('..')) {
+      res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end('403 Forbidden: Directory traversal attempt blocked');
+      return;
+    }
+
+    const resolvedPath = path.resolve(rootDir, '.' + pathname);
+    if (!resolvedPath.startsWith(path.resolve(rootDir))) {
+      res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end('403 Forbidden: Directory traversal attempt blocked');
+      return;
+    }
+
     let filePath = path.join(rootDir, pathname);
 
     // If file doesn't exist, check inside public/ or dist/
@@ -2203,37 +2810,14 @@ export async function startDevServer(options = {}) {
       }
     }
 
-    // Serve file if exists
+    // Serve static file if exists
     if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
       const mimeType = getMimeType(filePath);
       let content = fs.readFileSync(filePath);
 
-      // Auto-inject WebSocket client script into HTML files if not already present
+      // Auto-inject WebSocket client script into HTML files
       if (mimeType.startsWith('text/html')) {
-        let html = content.toString('utf8');
-        if (!html.includes('__zeropack_hmr')) {
-          const hmrScript = `
-<script>
-(function() {
-  var protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  var ws = new WebSocket(protocol + '//' + window.location.host + '/__zeropack_hmr');
-  ws.onopen = function() { console.log('[ZeroPack DevServer] Connected to live reload'); };
-  ws.onmessage = function(e) {
-    var data = JSON.parse(e.data);
-    if (data.type === 'reload') {
-      console.log('[ZeroPack DevServer] Reloading page...');
-      window.location.reload();
-    }
-  };
-})();
-</script>`;
-          if (html.includes('</body>')) {
-            html = html.replace('</body>', `${hmrScript}</body>`);
-          } else {
-            html += hmrScript;
-          }
-          content = Buffer.from(html, 'utf8');
-        }
+        content = Buffer.from(injectHmrScript(content.toString('utf8')), 'utf8');
       }
 
       res.writeHead(200, {
@@ -2246,19 +2830,35 @@ export async function startDevServer(options = {}) {
       return;
     }
 
-    // If request is for an HTML page or root fallback
-    const indexHtmlPath = path.join(rootDir, 'index.html');
-    const publicIndexHtml = path.join(rootDir, 'public', 'index.html');
-    const defaultHtml = fs.existsSync(indexHtmlPath) ? indexHtmlPath : (fs.existsSync(publicIndexHtml) ? publicIndexHtml : null);
+    // SPA Fallback Routing:
+    // If request has no extension or explicitly requests text/html, fallback to index.html
+    const hasExtension = Boolean(path.extname(pathname));
+    const acceptsHtml = (req.headers.accept || '').includes('text/html');
 
-    if (defaultHtml && (req.headers.accept || '').includes('text/html')) {
-      const html = fs.readFileSync(defaultHtml, 'utf8');
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      res.end(html);
-      return;
+    if (!hasExtension || acceptsHtml) {
+      const candidates = [
+        path.join(rootDir, 'index.html'),
+        path.join(rootDir, 'public', 'index.html'),
+        path.join(rootDir, 'dist', 'index.html')
+      ];
+      for (const cand of candidates) {
+        if (fs.existsSync(cand) && fs.statSync(cand).isFile()) {
+          const rawHtml = fs.readFileSync(cand, 'utf8');
+          const injectedHtml = injectHmrScript(rawHtml);
+          const buf = Buffer.from(injectedHtml, 'utf8');
+          res.writeHead(200, {
+            'Content-Type': 'text/html; charset=utf-8',
+            'Content-Length': buf.length,
+            'Access-Control-Allow-Origin': '*',
+            'Cache-Control': 'no-cache, no-store, must-revalidate'
+          });
+          res.end(buf);
+          return;
+        }
+      }
     }
 
-    res.writeHead(404, { 'Content-Type': 'text/plain' });
+    res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
     res.end(`404 Not Found: ${pathname}`);
   });
 
@@ -2355,12 +2955,20 @@ export async function startDevServer(options = {}) {
   }
 
   return new Promise((resolve, reject) => {
-    server.listen(port, () => {
-      logger.server(`Development server running at: ${colors.green(colors.bold(`http://localhost:${port}/`))}`);
-      logger.server(`Developer Dashboard active at: ${colors.brightCyan(colors.bold(`http://localhost:${port}/__zeropack`))}`);
-      logger.server(`HMR WebSocket endpoint active at: ${colors.cyan(colors.bold(`ws://localhost:${port}/__zeropack_hmr`))}`);
+    const listenHost = host === 'localhost' ? '127.0.0.1' : host;
+    server.listen(port, listenHost, () => {
+      const displayHost = host === '0.0.0.0' || host === '127.0.0.1' ? 'localhost' : host;
+      const serverUrl = `http://${displayHost}:${port}/`;
+      logger.server(`Development server running at: ${colors.green(colors.bold(serverUrl))}`);
+      logger.server(`Developer Dashboard active at: ${colors.brightCyan(colors.bold(`${serverUrl}__zeropack`))}`);
+      logger.server(`HMR WebSocket endpoint active at: ${colors.cyan(colors.bold(`ws://${displayHost}:${port}/__zeropack_hmr`))}`);
       logger.info(`Watching directory: ${colors.gray(watchDir)}`);
-      resolve({ server, broadcast, close: closeServer });
+
+      if (open) {
+        openBrowser(serverUrl);
+      }
+
+      resolve({ server, port, broadcast, close: closeServer });
     });
 
     server.on('error', (err) => {
