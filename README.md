@@ -75,7 +75,8 @@ Every industry-standard npm library has been replaced with a native Node.js core
 - 🛡️ **0 Third-Party Dependencies:** 100% compliant with strict zero-dependency competition constraints.
 - ⚡ **Blazing Fast Bundling:** Sub-30ms cold builds directly on Node.js.
 - 🔄 **Native RFC 6455 WebSocket HMR:** Real-time live reloading without external WebSocket engines.
-- 🗜️ **Built-in Minification:** State-machine lexer that strips comments and whitespace without corrupting template strings or regex literals.
+- 🗜️ **Robust State-Machine Minifier:** Lexer preserving ASI (Automatic Semicolon Insertion), operator spacing (`+ +`, `- -`), regex literals vs. division, and nested template literals with `${}`.
+- 🧩 **Comprehensive ESM $\to$ CJS Transforms:** Full support for destructured exports, namespace re-exports (`export * as ns`, `export *`), import attributes (`with`/`assert`), unpolluted default exports, and live getter bindings.
 - 🔒 **100% Deterministic Reproducible Builds:** Modules are sorted lexicographically by normalized paths to guarantee bit-for-bit identical SHA-256 output across runs.
 - 📦 **Single-File Distribution:** Compiles the entire bundler into an independent, standalone executable `zeropack.js`.
 - 🌐 **Static Dev Server:** Built-in HTTP server with MIME auto-detection and automatic client HMR script injection.
@@ -166,7 +167,14 @@ flowchart TD
 
 ### 2. Dependency Graph & Module Scanner ([`src/parser.js`](src/parser.js))
 - Recursively traverses `import` and `require` statements using regex pattern matchers.
-- Converts ES Module syntax (`import ... from`, `export default`, `export const`, `export { ... }`) into isolated CommonJS module bodies compatible with the bundle runtime.
+- Converts ES Module syntax into isolated CommonJS module bodies compatible with the bundle runtime:
+  - Named & default imports/exports (`import Default, { a, b as c }`, `export default`, `export { ... }`).
+  - Destructured exports (`export const { x, y } = obj;`, `export const [ a, b ] = arr;`).
+  - Namespace re-exports (`export * as ns from 'specifier'`, `export * from 'specifier'`).
+  - Modern import attributes / assertions (`import ... with { type: 'json' }` and `assert`).
+  - Live getter bindings via `Object.defineProperty` for exported mutable variables (`let`, `var`).
+  - Function declaration hoisting for circular dependency resilience.
+  - Clean `export default` scoping without polluting named export namespaces.
 - Generates a graph of nodes:
   ```json
   {
@@ -210,11 +218,12 @@ Wraps all modules into a scoped Immediately Invoked Function Expression (IIFE) w
 ```
 
 ### 4. State-Machine Minifier ([`src/bundler.js`](src/bundler.js))
-A streaming state-machine parser that iterates character-by-character:
-- Strips single-line `//` comments.
-- Strips multi-line `/* ... */` comments.
-- Accurately tracks quotes (`'`, `"`) and template literals (``` ` ```) to prevent stripping contents inside strings.
-- Strips non-essential whitespace while ensuring operators and keyword boundaries are strictly preserved.
+A streaming state-machine parser and lexer that iterates character-by-character:
+- Strips single-line `//` and multi-line `/* ... */` comments.
+- Preserves Automatic Semicolon Insertion (ASI) boundaries between statements without syntax corruptions.
+- Accurately tracks quotes (`'`, `"`) and template literals (``` ` ```) with a lexical context stack supporting arbitrarily nested `${}` expressions.
+- Preserves necessary spacing between identical unary operators (`a + +b` $\to$ `a+ +b`, `a - -b` $\to$ `a- -b`).
+- Accurately disambiguates regex literals from division operators based on preceding tokens and character classes (`[...]`).
 
 ### 5. Native RFC 6455 WebSocket HMR Server ([`src/server.js`](src/server.js))
 - **Handshake Protocol:** Intercepts `upgrade` requests on `node:http`. Computes `Sec-WebSocket-Accept` header using:
@@ -227,8 +236,8 @@ Runs sequential multi-pass builds on identical source trees and compares their S
 
 ```
 --- VERIFICATION AUDIT REPORT ---
-Build #1 SHA-256: 07af061c6d70ff147da38f38448302d9ffec86aa5f63e571fb781c85f0835882 (3824 bytes)
-Build #2 SHA-256: 07af061c6d70ff147da38f38448302d9ffec86aa5f63e571fb781c85f0835882 (3824 bytes)
+Build #1 SHA-256: 1b93d34bcd6605fa389bb7298446d5fec5580e3617e8cae1cb40572d8d79d601 (3724 bytes)
+Build #2 SHA-256: 1b93d34bcd6605fa389bb7298446d5fec5580e3617e8cae1cb40572d8d79d601 (3724 bytes)
 [SUCCESS] BYTE-FOR-BYTE IDENTICAL! Deterministic reproducible build verified 100%.
 ```
 
@@ -257,15 +266,20 @@ node zeropack.js --entry src/index.js --out dist/bundle.js --minify
 | `npm run build` | Compile and minify `src/index.js` into `dist/bundle.js` |
 | `npm run build-standalone` | Generate single-file `zeropack.js` and build verification |
 | `npm run verify` | Run reproducible build checksum validation |
+| `npm run check` | Run full automated test suite via native `node --test` |
+| `npm test` | Alias for `npm run check` |
 
 ---
 
 ## 🧪 Verification & Testing
 
-ZeroPack includes automated verification tests for the dev server and RFC 6455 WebSocket engine:
+ZeroPack includes a native, zero-dependency automated test suite leveraging Node's built-in `node:test` runner:
 
 ```bash
-# Run server & WebSocket HMR automated test
+# Run all automated tests (unit correctness + server & WebSocket HMR)
+npm run check
+
+# Or test server standalone
 node test-server.js
 ```
 

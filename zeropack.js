@@ -4,7 +4,7 @@
  * Zero-Dependency JavaScript Bundler, Minifier & RFC 6455 HMR Dev Server
  * Built exclusively with Node.js Native Core Libraries.
  * 
- * Auto-generated on: 2026-10-03T21:51:31.445Z
+ * Auto-generated on: 2026-10-03T21:56:05.222Z
  */
 
 import fs from 'node:fs';
