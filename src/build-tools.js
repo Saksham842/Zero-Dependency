@@ -73,8 +73,6 @@ export function compileSingleFile() {
  * ZeroPack Standalone Executable
  * Zero-Dependency JavaScript Bundler, Minifier & RFC 6455 HMR Dev Server
  * Built exclusively with Node.js Native Core Libraries.
- * 
- * Auto-generated on: ${new Date().toISOString()}
  */
 
 ${Array.from(builtinImports).join('\n')}

@@ -3,8 +3,6 @@
  * ZeroPack Standalone Executable
  * Zero-Dependency JavaScript Bundler, Minifier & RFC 6455 HMR Dev Server
  * Built exclusively with Node.js Native Core Libraries.
- * 
- * Auto-generated on: 2026-10-03T22:51:05.728Z
  */
 
 import fs from 'node:fs';
