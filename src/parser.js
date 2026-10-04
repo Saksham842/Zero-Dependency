@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import zlib from 'node:zlib';
 import process from 'node:process';
 import * as nodeModule from 'node:module';
 import { logger, colors } from './cli.js';
@@ -548,15 +549,28 @@ module.exports.default = ${cssContent};
 }
 
 /**
+ * Global in-memory module cache for high-speed incremental rebuilds.
+ */
+export const globalModuleCache = new Map();
+
+export function clearModuleCache() {
+  globalModuleCache.clear();
+}
+
+/**
  * Builds the complete dependency graph starting from entry file.
  * Returns an array of module node objects.
  */
-export function buildDependencyGraph(entryPath, rootDir = process.cwd()) {
+export function buildDependencyGraph(entryPath, rootDir = process.cwd(), options = {}) {
   const absoluteEntry = path.isAbsolute(entryPath) ? entryPath : path.resolve(rootDir, entryPath);
 
   if (!fs.existsSync(absoluteEntry)) {
     throw new Error(`Entry file not found: ${absoluteEntry}`);
   }
+
+  const cache = options.cache !== false
+    ? (options.cache instanceof Map ? options.cache : globalModuleCache)
+    : null;
 
   let nextId = 0;
   const fileToIdMap = new Map();
@@ -565,9 +579,45 @@ export function buildDependencyGraph(entryPath, rootDir = process.cwd()) {
   const recursionStack = new Set();
 
   function createModule(absoluteFilePath) {
-    const rawContent = fs.readFileSync(absoluteFilePath, 'utf8');
-    const hash = crypto.createHash('sha256').update(rawContent).digest('hex');
-    const { code, dependencies } = transformModuleCode(rawContent, absoluteFilePath);
+    let stat;
+    try {
+      stat = fs.statSync(absoluteFilePath);
+    } catch (_) {
+      stat = null;
+    }
+
+    const cached = (cache && stat) ? cache.get(absoluteFilePath) : null;
+    let rawContent, hash, code, dependencies, byteLength, gzipSize;
+
+    if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) {
+      rawContent = cached.rawCode;
+      hash = cached.hash;
+      code = cached.code;
+      dependencies = cached.dependencies;
+      byteLength = cached.byteLength;
+      gzipSize = cached.gzipSize;
+    } else {
+      rawContent = fs.readFileSync(absoluteFilePath, 'utf8');
+      hash = crypto.createHash('sha256').update(rawContent).digest('hex');
+      const transformed = transformModuleCode(rawContent, absoluteFilePath);
+      code = transformed.code;
+      dependencies = transformed.dependencies;
+      byteLength = Buffer.byteLength(code, 'utf8');
+      gzipSize = zlib.gzipSync(Buffer.from(code, 'utf8')).length;
+
+      if (cache && stat) {
+        cache.set(absoluteFilePath, {
+          mtimeMs: stat.mtimeMs,
+          size: stat.size,
+          hash,
+          code,
+          dependencies,
+          rawCode: rawContent,
+          byteLength,
+          gzipSize
+        });
+      }
+    }
 
     const id = nextId++;
     fileToIdMap.set(absoluteFilePath, id);
@@ -580,7 +630,9 @@ export function buildDependencyGraph(entryPath, rootDir = process.cwd()) {
       code,
       dependencies,
       mapping: {},
-      hash
+      hash,
+      byteLength,
+      gzipSize
     };
 
     return moduleNode;

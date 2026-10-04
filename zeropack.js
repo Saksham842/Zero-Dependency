@@ -1321,15 +1321,28 @@ module.exports.default = ${cssContent};
 }
 
 /**
+ * Global in-memory module cache for high-speed incremental rebuilds.
+ */
+export const globalModuleCache = new Map();
+
+export function clearModuleCache() {
+  globalModuleCache.clear();
+}
+
+/**
  * Builds the complete dependency graph starting from entry file.
  * Returns an array of module node objects.
  */
-export function buildDependencyGraph(entryPath, rootDir = process.cwd()) {
+export function buildDependencyGraph(entryPath, rootDir = process.cwd(), options = {}) {
   const absoluteEntry = path.isAbsolute(entryPath) ? entryPath : path.resolve(rootDir, entryPath);
 
   if (!fs.existsSync(absoluteEntry)) {
     throw new Error(`Entry file not found: ${absoluteEntry}`);
   }
+
+  const cache = options.cache !== false
+    ? (options.cache instanceof Map ? options.cache : globalModuleCache)
+    : null;
 
   let nextId = 0;
   const fileToIdMap = new Map();
@@ -1338,9 +1351,45 @@ export function buildDependencyGraph(entryPath, rootDir = process.cwd()) {
   const recursionStack = new Set();
 
   function createModule(absoluteFilePath) {
-    const rawContent = fs.readFileSync(absoluteFilePath, 'utf8');
-    const hash = crypto.createHash('sha256').update(rawContent).digest('hex');
-    const { code, dependencies } = transformModuleCode(rawContent, absoluteFilePath);
+    let stat;
+    try {
+      stat = fs.statSync(absoluteFilePath);
+    } catch (_) {
+      stat = null;
+    }
+
+    const cached = (cache && stat) ? cache.get(absoluteFilePath) : null;
+    let rawContent, hash, code, dependencies, byteLength, gzipSize;
+
+    if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) {
+      rawContent = cached.rawCode;
+      hash = cached.hash;
+      code = cached.code;
+      dependencies = cached.dependencies;
+      byteLength = cached.byteLength;
+      gzipSize = cached.gzipSize;
+    } else {
+      rawContent = fs.readFileSync(absoluteFilePath, 'utf8');
+      hash = crypto.createHash('sha256').update(rawContent).digest('hex');
+      const transformed = transformModuleCode(rawContent, absoluteFilePath);
+      code = transformed.code;
+      dependencies = transformed.dependencies;
+      byteLength = Buffer.byteLength(code, 'utf8');
+      gzipSize = zlib.gzipSync(Buffer.from(code, 'utf8')).length;
+
+      if (cache && stat) {
+        cache.set(absoluteFilePath, {
+          mtimeMs: stat.mtimeMs,
+          size: stat.size,
+          hash,
+          code,
+          dependencies,
+          rawCode: rawContent,
+          byteLength,
+          gzipSize
+        });
+      }
+    }
 
     const id = nextId++;
     fileToIdMap.set(absoluteFilePath, id);
@@ -1353,7 +1402,9 @@ export function buildDependencyGraph(entryPath, rootDir = process.cwd()) {
       code,
       dependencies,
       mapping: {},
-      hash
+      hash,
+      byteLength,
+      gzipSize
     };
 
     return moduleNode;
@@ -1398,19 +1449,59 @@ export function buildDependencyGraph(entryPath, rootDir = process.cwd()) {
 // ==========================================
 // Module: bundler.js
 // ==========================================
+// Precomputed lookup tables for ultra-high minifier throughput
+const IS_WORD = new Uint8Array(128);
+for (let c = 48; c <= 57; c++) IS_WORD[c] = 1; // 0-9
+for (let c = 65; c <= 90; c++) IS_WORD[c] = 1; // A-Z
+for (let c = 97; c <= 122; c++) IS_WORD[c] = 1; // a-z
+IS_WORD[95] = 1; // _
+IS_WORD[36] = 1; // $
+
+const CAN_PRECEDE_REGEX_CHAR = new Uint8Array(128);
+const regexPrecedeChars = '(=:[!&|?{};,^~<>+-*/%';
+for (let idx = 0; idx < regexPrecedeChars.length; idx++) {
+  CAN_PRECEDE_REGEX_CHAR[regexPrecedeChars.charCodeAt(idx)] = 1;
+}
+
+const REGEX_PRECEDING_KEYWORDS = new Set([
+  'return', 'case', 'typeof', 'yield', 'await', 'delete',
+  'void', 'throw', 'default', 'do', 'else', 'instanceof', 'in', 'new'
+]);
+
+const CAN_END_ASI_CHAR = new Uint8Array(128);
+for (let c = 0; c < 128; c++) if (IS_WORD[c]) CAN_END_ASI_CHAR[c] = 1;
+const asiEndChars = ')]}"\'`';
+for (let idx = 0; idx < asiEndChars.length; idx++) {
+  CAN_END_ASI_CHAR[asiEndChars.charCodeAt(idx)] = 1;
+}
+
+const CAN_START_ASI_CHAR = new Uint8Array(128);
+for (let c = 0; c < 128; c++) if (IS_WORD[c]) CAN_START_ASI_CHAR[c] = 1;
+const asiStartChars = '(/[{';
+for (let idx = 0; idx < asiStartChars.length; idx++) {
+  CAN_START_ASI_CHAR[asiStartChars.charCodeAt(idx)] = 1;
+}
+
+function isWordCode(code) {
+  return code < 128 ? IS_WORD[code] === 1 : code >= 0x80;
+}
+
+function canPrecedeRegex(tok) {
+  if (!tok) return true;
+  const lastCode = tok.charCodeAt(tok.length - 1);
+  if (lastCode < 128 && CAN_PRECEDE_REGEX_CHAR[lastCode] === 1) return true;
+  return REGEX_PRECEDING_KEYWORDS.has(tok);
+}
+
 /**
- * Pure zero-dependency minifier using string scanner and state machine.
- * Correctly preserves strings ('...', "...", `...`), template literals, and regexes
- * while stripping single-line comments, multi-line comments, and extraneous whitespace.
- * Optionally tracks source map mappings.
+ * High-performance state-machine minifier using array chunks, lookup tables, and single slices.
  */
 export function minifyCode(code, options = {}) {
   const { sourcemap = false, initialLineMappings = null } = options;
-  let output = '';
-  let i = 0;
   const len = code.length;
+  const chunks = [];
+  let i = 0;
 
-  // Stack of contexts: 'CODE', 'TEMPLATE', 'EXPR'
   const stack = ['CODE'];
   const braceStack = [];
 
@@ -1423,53 +1514,45 @@ export function minifyCode(code, options = {}) {
   let outCol = 0;
   const minifiedLineMappings = [[]];
 
-  function currentContext() {
-    return stack[stack.length - 1];
-  }
+  let lastCharCode = 0;
+  let lastChar = '';
+  let lastTwoChars = '';
 
-  function isWordChar(ch) {
-    return /[a-zA-Z0-9_$]/.test(ch);
-  }
+  function appendToken(token) {
+    const firstCharCode = token.charCodeAt(0);
 
-  function canPrecedeRegex(tok) {
-    if (!tok) return true;
-    if (/[(=:[!&|?{};,^~<>+\-*/%]/.test(tok.slice(-1))) return true;
-    const keywords = [
-      'return', 'case', 'typeof', 'yield', 'await', 'delete',
-      'void', 'throw', 'default', 'do', 'else', 'instanceof', 'in', 'new'
-    ];
-    return keywords.includes(tok);
-  }
-
-  function appendToken(token, isWord = false) {
-    const lastChar = output.slice(-1);
-    const firstChar = token[0];
-
-    // Preserve newlines where ASI (automatic semicolon insertion) is needed
+    // Preserve newlines where ASI is required
     if (hadNewline) {
-      const prevCanEnd = isWordChar(lastChar) || /[)\]}"'`]/.test(lastChar) || output.endsWith('++') || output.endsWith('--');
-      const nextCanStart = isWordChar(firstChar) || /[(/[{]/.test(firstChar);
+      const prevCanEnd = (lastCharCode < 128 && CAN_END_ASI_CHAR[lastCharCode] === 1) || lastTwoChars === '++' || lastTwoChars === '--';
+      const nextCanStart = (firstCharCode < 128 && CAN_START_ASI_CHAR[firstCharCode] === 1);
       if (prevCanEnd && nextCanStart) {
-        output += '\n';
+        chunks.push('\n');
         outLine++;
         outCol = 0;
+        lastCharCode = 10;
+        lastChar = '\n';
+        lastTwoChars = '\n';
         if (sourcemap) minifiedLineMappings.push([]);
       }
     }
 
-    const updatedLastChar = output.slice(-1);
-    if (isWordChar(updatedLastChar) && isWordChar(firstChar)) {
-      output += ' ';
+    // Insert separating space between identifiers, keywords, or colliding operators
+    if (isWordCode(lastCharCode) && isWordCode(firstCharCode)) {
+      chunks.push(' ');
       outCol++;
-    } else if (updatedLastChar === '+' && firstChar === '+') {
-      output += ' ';
+      lastCharCode = 32;
+    } else if (lastCharCode === 43 && firstCharCode === 43) { // '+' and '+'
+      chunks.push(' ');
       outCol++;
-    } else if (updatedLastChar === '-' && firstChar === '-') {
-      output += ' ';
+      lastCharCode = 32;
+    } else if (lastCharCode === 45 && firstCharCode === 45) { // '-' and '-'
+      chunks.push(' ');
       outCol++;
-    } else if (updatedLastChar === '/' && firstChar === '/') {
-      output += ' ';
+      lastCharCode = 32;
+    } else if (lastCharCode === 47 && firstCharCode === 47) { // '/' and '/'
+      chunks.push(' ');
       outCol++;
+      lastCharCode = 32;
     }
 
     if (sourcemap && initialLineMappings && initialLineMappings[inLine] && initialLineMappings[inLine].length > 0) {
@@ -1477,18 +1560,22 @@ export function minifyCode(code, options = {}) {
       minifiedLineMappings[minifiedLineMappings.length - 1].push([outCol, srcIdx, oLine, inCol]);
     }
 
-    output += token;
+    chunks.push(token);
     outCol += token.length;
     hadNewline = false;
     lastSignificantToken = token;
+    const tlen = token.length;
+    lastCharCode = token.charCodeAt(tlen - 1);
+    lastChar = token[tlen - 1];
+    lastTwoChars = tlen >= 2 ? token.slice(-2) : (lastChar + token);
   }
 
   while (i < len) {
+    const cCode = code.charCodeAt(i);
     const char = code[i];
-    const nextChar = i + 1 < len ? code[i + 1] : '';
-    const ctx = currentContext();
+    const ctx = stack[stack.length - 1];
 
-    if (char === '\n') {
+    if (cCode === 10) { // '\n'
       inLine++;
       inCol = 0;
     } else {
@@ -1496,79 +1583,99 @@ export function minifyCode(code, options = {}) {
     }
 
     if (ctx === 'TEMPLATE') {
-      if (char === '\\') {
-        output += char + nextChar;
+      if (cCode === 92) { // '\\'
+        chunks.push(code.slice(i, i + 2));
         outCol += 2;
         i += 2;
+        lastCharCode = code.charCodeAt(i - 1);
         continue;
       }
-      if (char === '`') {
+      if (cCode === 96) { // '`'
         stack.pop();
-        output += char;
+        chunks.push('`');
         outCol++;
         lastSignificantToken = '`';
+        lastCharCode = 96;
+        lastChar = '`';
         i++;
         continue;
       }
-      if (char === '$' && nextChar === '{') {
+      if (cCode === 36 && i + 1 < len && code.charCodeAt(i + 1) === 123) { // '${'
         stack.push('EXPR');
         braceStack.push(1);
-        output += '${';
+        chunks.push('${');
         outCol += 2;
         i += 2;
         lastSignificantToken = '{';
+        lastCharCode = 123;
+        lastChar = '{';
         continue;
       }
-      output += char;
-      if (char === '\n') {
-        outLine++;
-        outCol = 0;
-        if (sourcemap) minifiedLineMappings.push([]);
-      } else {
-        outCol++;
+
+      // Fast-forward template literal characters in a single slice
+      const tStart = i;
+      while (i < len) {
+        const c = code.charCodeAt(i);
+        if (c === 92 || c === 96 || (c === 36 && i + 1 < len && code.charCodeAt(i + 1) === 123)) break;
+        if (c === 10) {
+          inLine++;
+          inCol = 0;
+          outLine++;
+          outCol = 0;
+          if (sourcemap) minifiedLineMappings.push([]);
+        } else {
+          inCol++;
+          outCol++;
+        }
+        i++;
       }
-      i++;
+      if (i > tStart) {
+        const slice = code.slice(tStart, i);
+        chunks.push(slice);
+        lastCharCode = slice.charCodeAt(slice.length - 1);
+        lastChar = slice[slice.length - 1];
+      }
       continue;
     }
 
     // Inside CODE or EXPR:
     // 0. Hashbang comment (#!/usr/bin/env node)
-    if (char === '#' && nextChar === '!') {
-      i += 2;
-      while (i < len && code[i] !== '\n' && code[i] !== '\r') {
-        i++;
-      }
+    if (cCode === 35 && i + 1 < len && code.charCodeAt(i + 1) === 33) {
+      const nextNl = code.indexOf('\n', i + 2);
+      i = nextNl === -1 ? len : nextNl;
       hadNewline = true;
       continue;
     }
 
     // 1. Single line comment
-    if (char === '/' && nextChar === '/') {
-      i += 2;
-      while (i < len && code[i] !== '\n' && code[i] !== '\r') {
-        i++;
-      }
+    if (cCode === 47 && i + 1 < len && code.charCodeAt(i + 1) === 47) {
+      const nextNl = code.indexOf('\n', i + 2);
+      i = nextNl === -1 ? len : nextNl;
       hadNewline = true;
       continue;
     }
 
     // 2. Multi line comment
-    if (char === '/' && nextChar === '*') {
-      i += 2;
-      while (i < len && !(code[i] === '*' && code[i + 1] === '/')) {
-        if (code[i] === '\n') {
-          hadNewline = true;
-          inLine++;
-          inCol = 0;
+    if (cCode === 47 && i + 1 < len && code.charCodeAt(i + 1) === 42) {
+      const nextEnd = code.indexOf('*/', i + 2);
+      const end = nextEnd === -1 ? len : nextEnd + 2;
+      if (sourcemap) {
+        for (let c = i; c < end; c++) {
+          if (code.charCodeAt(c) === 10) {
+            hadNewline = true;
+            inLine++;
+            inCol = 0;
+          }
         }
-        i++;
+      } else {
+        if (code.slice(i, end).includes('\n')) hadNewline = true;
       }
-      i += 2;
+      i = end;
       continue;
     }
 
     // 3. Template literal start
-    if (char === '`') {
+    if (cCode === 96) {
       appendToken('`');
       stack.push('TEMPLATE');
       i++;
@@ -1576,69 +1683,66 @@ export function minifyCode(code, options = {}) {
     }
 
     // 4. Single / Double quoted strings
-    if (char === "'" || char === '"') {
-      const quote = char;
-      let str = quote;
-      i++;
+    if (cCode === 39 || cCode === 34) {
+      const q = cCode;
+      const sStart = i++;
       while (i < len) {
-        const c = code[i];
-        str += c;
-        if (c === '\\') {
-          i++;
-          if (i < len) str += code[i];
-        } else if (c === quote) {
+        const c = code.charCodeAt(i);
+        if (c === 92) {
+          i += 2;
+        } else if (c === q) {
           i++;
           break;
+        } else {
+          i++;
         }
-        i++;
       }
-      appendToken(str);
+      appendToken(code.slice(sStart, i));
       continue;
     }
 
     // 5. Regex literal vs division
-    if (char === '/') {
-      if (canPrecedeRegex(lastSignificantToken)) {
-        let regexStr = '/';
-        i++;
-        let inCharClass = false;
-        while (i < len) {
-          const c = code[i];
-          regexStr += c;
-          if (c === '\\') {
+    if (cCode === 47 && canPrecedeRegex(lastSignificantToken)) {
+      const rStart = i++;
+      let inCharClass = false;
+      while (i < len) {
+        const c = code.charCodeAt(i);
+        if (c === 92) {
+          i += 2;
+        } else if (c === 91 && !inCharClass) {
+          inCharClass = true;
+          i++;
+        } else if (c === 93 && inCharClass) {
+          inCharClass = false;
+          i++;
+        } else if (c === 47 && !inCharClass) {
+          i++;
+          while (i < len && isWordCode(code.charCodeAt(i))) {
             i++;
-            if (i < len) regexStr += code[i];
-          } else if (c === '[' && !inCharClass) {
-            inCharClass = true;
-          } else if (c === ']' && inCharClass) {
-            inCharClass = false;
-          } else if (c === '/' && !inCharClass) {
-            i++;
-            while (i < len && /[a-z]/i.test(code[i])) {
-              regexStr += code[i];
-              i++;
-            }
-            break;
           }
+          break;
+        } else {
           i++;
         }
-        appendToken(regexStr);
-        continue;
       }
+      appendToken(code.slice(rStart, i));
+      continue;
     }
 
     // 6. Curly braces in EXPR
     if (ctx === 'EXPR') {
-      if (char === '{') {
+      if (cCode === 123) {
         braceStack[braceStack.length - 1]++;
-      } else if (char === '}') {
+      } else if (cCode === 125) {
         braceStack[braceStack.length - 1]--;
         if (braceStack[braceStack.length - 1] === 0) {
           braceStack.pop();
           stack.pop();
-          output += '}';
+          chunks.push('}');
           outCol++;
           lastSignificantToken = '}';
+          lastCharCode = 125;
+          lastChar = '}';
           i++;
           continue;
         }
@@ -1646,28 +1750,36 @@ export function minifyCode(code, options = {}) {
     }
 
     // 7. Whitespace handling
-    if (/\s/.test(char)) {
-      if (char === '\n' || char === '\r') {
+    if (cCode <= 32) {
+      if (cCode === 10 || cCode === 13) {
         hadNewline = true;
       }
       i++;
+      while (i < len) {
+        const nextC = code.charCodeAt(i);
+        if (nextC > 32) break;
+        if (nextC === 10 || nextC === 13) {
+          hadNewline = true;
+        }
+        i++;
+      }
       continue;
     }
 
     // 8. Word tokens (identifiers, numbers, keywords)
-    if (isWordChar(char)) {
-      let word = '';
-      while (i < len && isWordChar(code[i])) {
-        word += code[i];
+    if (isWordCode(cCode)) {
+      const wStart = i++;
+      while (i < len && isWordCode(code.charCodeAt(i))) {
         i++;
       }
-      appendToken(word, true);
+      appendToken(code.slice(wStart, i));
       continue;
     }
 
     // 9. Multi-char operators (++ , --)
-    if ((char === '+' && nextChar === '+') || (char === '-' && nextChar === '-')) {
-      appendToken(char + nextChar);
+    if ((cCode === 43 && i + 1 < len && code.charCodeAt(i + 1) === 43) ||
+        (cCode === 45 && i + 1 < len && code.charCodeAt(i + 1) === 45)) {
+      appendToken(code.slice(i, i + 2));
       i += 2;
       continue;
     }
@@ -1677,6 +1789,7 @@ export function minifyCode(code, options = {}) {
     i++;
   }
 
+  const output = chunks.join('');
   if (sourcemap) {
     return {
       code: output.trim(),
@@ -1878,8 +1991,8 @@ export function generateBundle(graph, options = {}) {
   const moduleStats = [];
 
   for (const mod of graph) {
-    const modBytes = Buffer.byteLength(mod.code || '', 'utf8');
-    const modGzip = zlib.gzipSync(Buffer.from(mod.code || '', 'utf8')).length;
+    const modBytes = mod.byteLength !== undefined ? mod.byteLength : Buffer.byteLength(mod.code || '', 'utf8');
+    const modGzip = mod.gzipSize !== undefined ? mod.gzipSize : zlib.gzipSync(Buffer.from(mod.code || '', 'utf8')).length;
     originalSize += modBytes;
     moduleStats.push({
       id: mod.id,
@@ -1963,20 +2076,16 @@ export function generateBundle(graph, options = {}) {
   let bundleSource = headerTemplate;
   addEmptyLines(headerTemplate.split('\n').length - 1);
 
-  // Build modules mapping string
-  let modulesString = '\n';
+  // Build modules mapping string using array chunks
+  const moduleChunks = ['\n'];
   addEmptyLines(1);
 
   for (let modIdx = 0; modIdx < sortedGraph.length; modIdx++) {
     const mod = sortedGraph[modIdx];
     const mappingJson = JSON.stringify(mod.mapping);
 
-    modulesString += `  ${mod.id}: [\n`;
-    addEmptyLines(1);
-    modulesString += `    function(require, module, exports) {\n`;
-    addEmptyLines(1);
-    modulesString += `// [ZeroPack Module: ${mod.relativePath}]\n`;
-    addEmptyLines(1);
+    moduleChunks.push(`  ${mod.id}: [\n    function(require, module, exports) {\n// [ZeroPack Module: ${mod.relativePath}]\n`);
+    addEmptyLines(3);
 
     let moduleCode = mod.code;
     if (define && Object.keys(define).length > 0) {
@@ -1985,21 +2094,17 @@ export function generateBundle(graph, options = {}) {
 
     const codeLines = moduleCode.split('\n');
     for (let l = 0; l < codeLines.length; l++) {
-      modulesString += codeLines[l] + '\n';
+      moduleChunks.push(codeLines[l] + '\n');
       lineMappings.push([[0, modIdx, l, 0]]);
     }
 
-    modulesString += `    },\n`;
-    addEmptyLines(1);
-    modulesString += `    ${mappingJson}\n`;
-    addEmptyLines(1);
-    modulesString += `  ],\n`;
-    addEmptyLines(1);
+    moduleChunks.push(`    },\n    ${mappingJson}\n  ],\n`);
+    addEmptyLines(3);
   }
-  modulesString += '});\n';
+  moduleChunks.push('});\n');
   addEmptyLines(1);
 
-  bundleSource += modulesString;
+  bundleSource += moduleChunks.join('');
 
   // 5. Inject HMR Client Runtime if requested
   if (hmr) {
