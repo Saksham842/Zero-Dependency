@@ -75,9 +75,12 @@ function reportArtifactCheck(label, artifactPath, expectedSource) {
   }
 
   const actualSource = fs.readFileSync(artifactPath, 'utf8');
-  if (actualSource !== expectedSource) {
-    const expectedHash = crypto.createHash('sha256').update(expectedSource).digest('hex');
-    const actualHash = crypto.createHash('sha256').update(actualSource).digest('hex');
+  const normActual = actualSource.replace(/\r\n/g, '\n');
+  const normExpected = expectedSource.replace(/\r\n/g, '\n');
+
+  if (normActual !== normExpected) {
+    const expectedHash = crypto.createHash('sha256').update(normExpected).digest('hex');
+    const actualHash = crypto.createHash('sha256').update(normActual).digest('hex');
     logger.error(`${label} is stale or modified.`);
     logger.error(`Expected SHA-256: ${expectedHash}`);
     logger.error(`Actual SHA-256:   ${actualHash}`);
