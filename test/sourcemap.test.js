@@ -181,7 +181,7 @@ test('Missing package throws clear BuildError with suggestion', () => {
 // =============================================================================
 // 3. Native TypeScript Type Stripping Tests
 // =============================================================================
-test('Native TypeScript type stripping on .ts files', () => {
+test('Native TypeScript type stripping on .ts files', (t) => {
   const tsCode = `
     export interface Config {
       port: number;
@@ -195,20 +195,7 @@ test('Native TypeScript type stripping on .ts files', () => {
 
   const hasStrip = typeof (nodeModule.stripTypeScriptTypes || nodeModule.default?.stripTypeScriptTypes) === 'function';
 
-  if (hasStrip) {
-    const result = transformModuleCode(tsCode, 'server.ts');
-    assert.ok(!result.code.includes('interface Config'));
-    assert.ok(!result.code.includes(': Config'));
-    assert.ok(!result.code.includes(': boolean'));
-
-    // Verify it compiles and executes in runtime
-    const mod = { exports: {} };
-    const fn = new Function('require', 'module', 'exports', result.code);
-    fn(() => {}, mod, mod.exports);
-    assert.strictEqual(mod.exports.serverConfig.port, 8080);
-    assert.strictEqual(mod.exports.start(mod.exports.serverConfig), true);
-  } else {
-    // On older Node.js, should throw clear BuildError
+  if (!hasStrip) {
     assert.throws(() => {
       transformModuleCode(tsCode, 'server.ts');
     }, (err) => {
@@ -216,5 +203,32 @@ test('Native TypeScript type stripping on .ts files', () => {
       assert.ok(err.message.includes('Native TypeScript type stripping is not available'));
       return true;
     });
+    if (t && typeof t.skip === 'function') {
+      t.skip(`Native TypeScript type stripping not supported in Node.js ${process.version}`);
+    }
+    return;
   }
+
+  const result = transformModuleCode(tsCode, 'server.ts');
+  assert.ok(!result.code.includes('interface Config'));
+  assert.ok(!result.code.includes(': Config'));
+  assert.ok(!result.code.includes(': boolean'));
+
+  // Verify it compiles and executes in runtime
+  const mod = { exports: {} };
+  const fn = new Function('require', 'module', 'exports', result.code);
+  fn(() => {}, mod, mod.exports);
+  assert.strictEqual(mod.exports.serverConfig.port, 8080);
+  assert.strictEqual(mod.exports.start(mod.exports.serverConfig), true);
+});
+
+test('TypeScript .tsx rejection with clear JSX explanation', () => {
+  assert.throws(() => {
+    transformModuleCode('export const App = () => <div>Hello</div>;', 'App.tsx');
+  }, (err) => {
+    assert.ok(err instanceof BuildError);
+    assert.ok(err.message.includes('TypeScript JSX (.tsx) is not supported'));
+    assert.ok(err.suggestion.includes('stripTypeScriptTypes only removes type annotations and cannot transform JSX syntax'));
+    return true;
+  });
 });

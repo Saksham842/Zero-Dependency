@@ -236,23 +236,34 @@ export function transformModuleCode(rawCode, filePath) {
   const dependencies = new Set();
   let code = rawCode;
 
-  // Handle TypeScript type stripping where available (.ts, .mts, .cts, .tsx)
-  if (filePath && /\.[cm]?ts[x]?$/.test(filePath)) {
+  // Disallow .tsx and explain why (type stripping does not transform JSX)
+  if (filePath && /\.[cm]?tsx$/i.test(filePath)) {
+    throw new BuildError(
+      `TypeScript JSX (.tsx) is not supported by native Node.js type stripping in '${filePath}'.`,
+      {
+        file: filePath,
+        suggestion: `stripTypeScriptTypes only removes type annotations and cannot transform JSX syntax. Enums and namespaces also require transform mode. Use standard .ts/.js or pre-compile with a JSX transform.`
+      }
+    );
+  }
+
+  // Handle TypeScript type stripping where available (.ts, .mts, .cts)
+  if (filePath && /\.[cm]?ts$/i.test(filePath)) {
     if (typeof stripTypeScriptTypes === 'function') {
       try {
         code = stripTypeScriptTypes(code);
       } catch (err) {
         throw new BuildError(`TypeScript syntax error in '${filePath}': ${err.message}`, {
           file: filePath,
-          suggestion: `Check TypeScript syntax.`
+          suggestion: `Check TypeScript syntax. Note that TypeScript enums and namespaces require transform mode and cannot be stripped.`
         });
       }
     } else {
       throw new BuildError(
-        `Native TypeScript type stripping is not available in Node.js ${process.version}. Requires Node.js >= 22.6.0.`,
+        `Native TypeScript type stripping is not available in Node.js ${process.version}. Requires Node.js >= 22.6.0 (or Node.js >= 22.13.0).`,
         {
           file: filePath,
-          suggestion: `Upgrade to Node.js >= 22.6.0 or pre-compile TypeScript files to JavaScript.`
+          suggestion: `Upgrade to Node.js >= 22.6.0 (or Node >= 22.13.0) or pre-compile TypeScript files to JavaScript.`
         }
       );
     }
