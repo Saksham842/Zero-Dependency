@@ -33,16 +33,25 @@ for (const file of files) {
     console.error(errMsg);
     console.error(`===========================================================\n`);
     
-    // GitHub Actions annotation format
-    const firstLine = errMsg.split(/\r?\n/).find(l => l.includes('Error') || l.includes('not ok')) || errMsg.split(/\r?\n/)[0] || 'Test suite failed';
-    const escapedMsg = firstLine.replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
+    // Extract informative error detail lines from TAP / Node test runner
+    const lines = errMsg.split(/\r?\n/);
+    const detailLines = lines.filter(l => 
+      l.includes('[ERROR]') || 
+      l.includes('Expected') || 
+      l.includes('Actual') || 
+      l.includes('AssertionError') ||
+      l.includes('code:') ||
+      l.includes('error:')
+    );
+    const details = detailLines.length > 0 ? detailLines.join(' ;; ') : lines.slice(0, 5).join(' ;; ');
+    const escapedMsg = details.slice(0, 800).replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
     console.log(`::error file=${file}::${escapedMsg}`);
 
     if (process.env.GITHUB_STEP_SUMMARY) {
       try {
         fs.appendFileSync(
           process.env.GITHUB_STEP_SUMMARY,
-          `### ❌ Failure in \`${file}\`\n\`\`\`\n${errMsg.slice(0, 2000)}\n\`\`\`\n\n`
+          `### ❌ Failure in \`${file}\`\n\`\`\`\n${errMsg.slice(0, 3000)}\n\`\`\`\n\n`
         );
       } catch (_) {}
     }
