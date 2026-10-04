@@ -605,6 +605,9 @@ export function buildDependencyGraph(entryPath, rootDir = process.cwd(), options
       byteLength = Buffer.byteLength(code, 'utf8');
       gzipSize = zlib.gzipSync(Buffer.from(code, 'utf8')).length;
 
+      const shebangMatch = rawContent.match(/^#![^\r\n]*/);
+      const shebang = shebangMatch ? shebangMatch[0] : null;
+
       if (cache && stat) {
         cache.set(absoluteFilePath, {
           mtimeMs: stat.mtimeMs,
@@ -613,6 +616,7 @@ export function buildDependencyGraph(entryPath, rootDir = process.cwd(), options
           code,
           dependencies,
           rawCode: rawContent,
+          shebang,
           byteLength,
           gzipSize
         });
@@ -622,11 +626,15 @@ export function buildDependencyGraph(entryPath, rootDir = process.cwd(), options
     const id = nextId++;
     fileToIdMap.set(absoluteFilePath, id);
 
+    const shebangMatch = rawContent.match(/^#![^\r\n]*/);
+    const shebang = shebangMatch ? shebangMatch[0] : null;
+
     const moduleNode = {
       id,
       filePath: absoluteFilePath,
       relativePath: path.relative(rootDir, absoluteFilePath).replace(/\\/g, '/'),
       rawCode: rawContent,
+      shebang,
       code,
       dependencies,
       mapping: {},

@@ -76,6 +76,30 @@ export function minifyCode(code, options = {}) {
   let lastChar = '';
   let lastTwoChars = '';
 
+  // Preserve leading shebang if present at index 0 (e.g. #!/usr/bin/env node)
+  if (code.startsWith('#!')) {
+    const nlIdx = code.indexOf('\n');
+    let shebangHeader = '';
+    if (nlIdx === -1) {
+      shebangHeader = code + '\n';
+      i = code.length;
+    } else {
+      shebangHeader = code.slice(0, nlIdx + 1);
+      i = nlIdx + 1;
+    }
+    chunks.push(shebangHeader);
+    inLine++;
+    inCol = 0;
+    outLine++;
+    outCol = 0;
+    lastCharCode = 10;
+    lastChar = '\n';
+    lastTwoChars = '\n';
+    if (sourcemap) {
+      minifiedLineMappings.push([]);
+    }
+  }
+
   function appendToken(token) {
     const firstCharCode = token.charCodeAt(0);
 
@@ -631,7 +655,11 @@ export function generateBundle(graph, options = {}) {
   return __zeropack_require__(0);
 })({`;
 
-  let bundleSource = headerTemplate;
+  const entryMod = graph.find(m => m.id === 0);
+  const shebang = options.shebang || (entryMod && entryMod.shebang) || null;
+
+  let bundleSource = (shebang ? `${shebang}\n` : '') + headerTemplate;
+  if (shebang) addEmptyLines(1);
   addEmptyLines(headerTemplate.split('\n').length - 1);
 
   // Build modules mapping string using array chunks
