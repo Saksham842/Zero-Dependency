@@ -1,0 +1,9 @@
+{
+  "name": "zeropack-json-fixture",
+  "version": "1.0.0",
+  "features": ["zero-dependency", "fast-build", "native-hmr"],
+  "settings": {
+    "port": 4321,
+    "enabled": true
+  }
+}

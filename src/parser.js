@@ -18,7 +18,7 @@ export function resolveFilePath(candidate, fromFile, specifier) {
   }
 
   // 2. Try file extensions
-  const extensions = ['.js', '.mjs', '.cjs', '.ts', '.jsx', '.tsx', '.json'];
+  const extensions = ['.js', '.mjs', '.cjs', '.ts', '.jsx', '.tsx', '.json', '.css'];
   for (const ext of extensions) {
     const withExt = candidate + ext;
     if (fs.existsSync(withExt) && fs.statSync(withExt).isFile()) {
@@ -236,6 +236,11 @@ export function transformModuleCode(rawCode, filePath) {
   const dependencies = new Set();
   let code = rawCode;
 
+  // Strip hashbang if present so it doesn't break module wrapping or export hoisting
+  if (code.startsWith('#!')) {
+    code = code.replace(/^#![^\n]*/, '');
+  }
+
   // Disallow .tsx and explain why (type stripping does not transform JSX)
   if (filePath && /\.[cm]?tsx$/i.test(filePath)) {
     throw new BuildError(
@@ -269,12 +274,72 @@ export function transformModuleCode(rawCode, filePath) {
     }
   }
 
-  // If JSON file, wrap as module export
+  // If JSON file, wrap as module export with both named exports and default export
   if (filePath && filePath.endsWith('.json')) {
+    let parsedJson;
+    try {
+      parsedJson = JSON.parse(rawCode.trim() || '{}');
+    } catch (_) {
+      parsedJson = {};
+    }
+    const jsonSerialized = JSON.stringify(parsedJson);
     return {
-      code: `module.exports = ${rawCode.trim() || '{}'};`,
+      code: `const __zp_json = ${jsonSerialized};
+module.exports = __zp_json;
+if (typeof __zp_json === 'object' && __zp_json !== null && !Array.isArray(__zp_json)) {
+  for (const __k of Object.keys(__zp_json)) {
+    module.exports[__k] = __zp_json[__k];
+  }
+}
+module.exports.default = __zp_json;
+`,
       dependencies: []
     };
+  }
+
+  // If CSS file, export CSS string and inject <style> tag in DOM environments
+  if (filePath && filePath.endsWith('.css')) {
+    const cssContent = JSON.stringify(rawCode);
+    return {
+      code: `if (typeof document !== 'undefined') {
+  try {
+    var style = document.createElement('style');
+    style.setAttribute('data-zeropack-css', '');
+    style.textContent = ${cssContent};
+    document.head.appendChild(style);
+  } catch (_) {}
+}
+module.exports = ${cssContent};
+module.exports.default = ${cssContent};
+`,
+      dependencies: []
+    };
+  }
+
+  // Handle dynamic imports: import('specifier')
+  const dynamicImportRegex = /(?:^|[^.\w])import\s*\(\s*(['"])(.*?)\1(?:\s*,[\s\S]*?)?\s*\)/g;
+  let dynMatch;
+  while ((dynMatch = dynamicImportRegex.exec(code)) !== null) {
+    dependencies.add(dynMatch[2]);
+  }
+  code = code.replace(
+    /(^|[^.\w])import\s*\(\s*(['"])(.*?)\2(?:\s*,[\s\S]*?)?\s*\)/g,
+    (_, prefix, quote, specifier) => {
+      return `${prefix}Promise.resolve().then(() => { const _m = require('${specifier}'); return (_m && typeof _m === 'object' && (_m.__esModule || _m.default !== undefined)) ? _m : Object.assign({ default: _m }, _m); })`;
+    }
+  );
+
+  // Pre-scan exported functions to hoist module.exports.<name> = <name> for circular dependencies
+  const hoistedExports = [];
+  const fnDeclRegex = /(?:^|[\n;])\s*export\s+(?:async\s+)?function\s+([a-zA-Z_$][0-9a-zA-Z_$]*)/g;
+  let fnMatch;
+  while ((fnMatch = fnDeclRegex.exec(code)) !== null) {
+    hoistedExports.push(`module.exports.${fnMatch[1]} = ${fnMatch[1]};`);
+  }
+  const defFnDeclRegex = /(?:^|[\n;])\s*export\s+default\s+(?:async\s+)?function\s+([a-zA-Z_$][0-9a-zA-Z_$]*)/g;
+  let defFnMatch;
+  while ((defFnMatch = defFnDeclRegex.exec(code)) !== null) {
+    hoistedExports.push(`module.exports.default = ${defFnMatch[1]};`);
   }
 
   // 1. Scan and collect require('...') calls
@@ -380,11 +445,14 @@ export function transformModuleCode(rawCode, filePath) {
     }
   );
 
-  // 8. Transform `export default class Foo {}`
+  // 8. Transform `export default class Foo {}` or `export default class {}`
   code = code.replace(
-    /(?:^|[\n;])\s*export\s+default\s+class\s+([a-zA-Z_$][0-9a-zA-Z_$]*)([\s\S]*?)\{/g,
-    (_, className, rest) => {
-      return `\nclass ${className}${rest}{\nmodule.exports.default = ${className};\n`;
+    /(?:^|[\n;])\s*export\s+default\s+class\s+([a-zA-Z_$][0-9a-zA-Z_$]*)?/g,
+    (_, className) => {
+      if (className) {
+        return `\nconst ${className} = module.exports.default = class ${className}`;
+      }
+      return `\nmodule.exports.default = class`;
     }
   );
 
@@ -396,6 +464,9 @@ export function transformModuleCode(rawCode, filePath) {
       if (!trimmedExpr) return match;
       if (trimmedExpr.startsWith('function') && !trimmedExpr.startsWith('function(') && !trimmedExpr.startsWith('function (')) {
         return match; // Named function handled above
+      }
+      if (trimmedExpr.startsWith('class') && !trimmedExpr.startsWith('class{') && !trimmedExpr.startsWith('class {')) {
+        return match; // Named class handled above
       }
       return `\nconst __defaultExport = (${trimmedExpr});\nmodule.exports.default = __defaultExport;\n`;
     }
@@ -411,9 +482,9 @@ export function transformModuleCode(rawCode, filePath) {
 
   // 11. Transform `export class name {}`
   code = code.replace(
-    /(?:^|[\n;])\s*export\s+class\s+([a-zA-Z_$][0-9a-zA-Z_$]*)([\s\S]*?)\{/g,
-    (_, className, rest) => {
-      return `\nclass ${className}${rest}{\nmodule.exports.${className} = ${className};\n`;
+    /(?:^|[\n;])\s*export\s+class\s+([a-zA-Z_$][0-9a-zA-Z_$]*)/g,
+    (_, className) => {
+      return `\nconst ${className} = module.exports.${className} = class ${className}`;
     }
   );
 
@@ -465,6 +536,10 @@ export function transformModuleCode(rawCode, filePath) {
       return '\n' + exportsList;
     }
   );
+
+  if (hoistedExports.length > 0) {
+    code = hoistedExports.join('\n') + '\n' + code;
+  }
 
   return {
     code,

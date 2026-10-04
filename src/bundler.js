@@ -140,6 +140,16 @@ export function minifyCode(code, options = {}) {
     }
 
     // Inside CODE or EXPR:
+    // 0. Hashbang comment (#!/usr/bin/env node)
+    if (char === '#' && nextChar === '!') {
+      i += 2;
+      while (i < len && code[i] !== '\n' && code[i] !== '\r') {
+        i++;
+      }
+      hadNewline = true;
+      continue;
+    }
+
     // 1. Single line comment
     if (char === '/' && nextChar === '/') {
       i += 2;
