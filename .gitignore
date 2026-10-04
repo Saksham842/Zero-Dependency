@@ -17,3 +17,8 @@ Thumbs.db
 .vscode/
 .idea/
 .gemini/
+
+# AI Agent Context Files
+agents.md
+.agents/
+explanation.md

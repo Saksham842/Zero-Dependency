@@ -1,5 +1,7 @@
 import http from 'node:http';
 import crypto from 'node:crypto';
+import os from 'node:os';
+import path from 'node:path';
 import { startDevServer, decodeWebSocketFrame } from '../src/server.js';
 import { logger, colors } from '../src/cli.js';
 
@@ -8,7 +10,7 @@ async function testServerAndHmr() {
   const { server, broadcast, close } = await startDevServer({
     port: 4321,
     entry: 'src/index.js',
-    out: 'dist/bundle.js',
+    out: path.join(os.tmpdir(), 'zp-server-test-bundle.js'),
     minify: true,
     rootDir: process.cwd()
   });

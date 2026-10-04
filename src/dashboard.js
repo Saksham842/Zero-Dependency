@@ -698,12 +698,22 @@ export const DASHBOARD_HTML = `<!DOCTYPE html>
         if (!res.ok) return;
         var data = await res.json();
         currentStatsData = data;
-        renderOverview(data);
+        renderMetrics(data);
         renderTimeline(data.buildHistory || []);
         if (data.logHistory) renderLogHistory(data.logHistory);
       } catch (err) {
         console.error('[ZeroPack Dashboard Error]', err);
       }
+    }
+
+    function renderMetrics(stats) {
+      if (!stats) return;
+      var err = stats.error || {};
+      var errMsg = document.getElementById('error-message');
+      if (errMsg) {
+        errMsg.textContent = err.message || 'Build Error';
+      }
+      renderOverview(stats);
     }
 
     function renderOverview(stats) {
@@ -734,15 +744,27 @@ export const DASHBOARD_HTML = `<!DOCTYPE html>
         var pct = Math.max(5, Math.min(100, Math.round((mod.size / maxSize) * 100)));
         var item = document.createElement('div');
         item.className = 'bar-item';
-        item.innerHTML = \`
-          <div class="bar-meta">
-            <span class="bar-name">\${mod.filePath}</span>
-            <span class="bar-size">\${formatBytes(mod.size)} <span style="color:#a78bfa;font-size:0.75rem;">(\${formatBytes(mod.gzipSize)} gzip)</span></span>
-          </div>
-          <div class="bar-track">
-            <div class="bar-fill" style="width: \${pct}%;"></div>
-          </div>
-        \`;
+        
+        var meta = document.createElement('div');
+        meta.className = 'bar-meta';
+        var nameSpan = document.createElement('span');
+        nameSpan.className = 'bar-name';
+        nameSpan.textContent = mod.filePath;
+        var sizeSpan = document.createElement('span');
+        sizeSpan.className = 'bar-size';
+        sizeSpan.innerHTML = formatBytes(mod.size) + ' <span style="color:#a78bfa;font-size:0.75rem;">(' + formatBytes(mod.gzipSize) + ' gzip)</span>';
+        meta.appendChild(nameSpan);
+        meta.appendChild(sizeSpan);
+
+        var track = document.createElement('div');
+        track.className = 'bar-track';
+        var fill = document.createElement('div');
+        fill.className = 'bar-fill';
+        fill.style.width = pct + '%';
+        track.appendChild(fill);
+
+        item.appendChild(meta);
+        item.appendChild(track);
         container.appendChild(item);
       }
     }

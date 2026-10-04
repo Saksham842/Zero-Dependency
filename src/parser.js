@@ -5,7 +5,50 @@ import zlib from 'node:zlib';
 import process from 'node:process';
 import * as nodeModule from 'node:module';
 import { logger, colors } from './cli.js';
-import { BuildError } from './errors.js';
+import { BuildError, getLineColumn } from './errors.js';
+export { BuildError, getLineColumn } from './errors.js';
+export { minifyCss } from './parser-css.js';
+
+export function isIndexInStringOrComment(src, targetIdx) {
+  let inSingle = false;
+  let inDouble = false;
+  let inBacktick = false;
+  let inLineComment = false;
+  let inBlockComment = false;
+
+  for (let i = 0; i < targetIdx; i++) {
+    const c = src[i];
+    const prev = i > 0 ? src[i - 1] : '';
+
+    if (inLineComment) {
+      if (c === '\n') inLineComment = false;
+    } else if (inBlockComment) {
+      if (c === '/' && prev === '*') inBlockComment = false;
+    } else if (inSingle) {
+      if (c === "'" && prev !== '\\') inSingle = false;
+    } else if (inDouble) {
+      if (c === '"' && prev !== '\\') inDouble = false;
+    } else if (inBacktick) {
+      if (c === '`' && prev !== '\\') inBacktick = false;
+    } else {
+      if (c === '/' && src[i + 1] === '/') {
+        inLineComment = true;
+        i++;
+      } else if (c === '/' && src[i + 1] === '*') {
+        inBlockComment = true;
+        i++;
+      } else if (c === "'") {
+        inSingle = true;
+      } else if (c === '"') {
+        inDouble = true;
+      } else if (c === '`') {
+        inBacktick = true;
+      }
+    }
+  }
+
+  return inSingle || inDouble || inBacktick || inLineComment || inBlockComment;
+}
 
 const stripTypeScriptTypes = nodeModule.stripTypeScriptTypes || nodeModule.default?.stripTypeScriptTypes;
 
@@ -95,9 +138,10 @@ export function resolveNodeModule(fromFile, specifier, rootDir = process.cwd()) 
   }
 
   if (!pkgDir) {
-    throw new BuildError(`Cannot find package '${pkgName}' imported from '${path.relative(rootDir, fromFile).replace(/\\/g, '/')}'`, {
+    throw new BuildError(`Cannot find package '${pkgName}' imported from '${path.relative(rootDir, fromFile).replace(/\\/g, '/')}' (Unable to resolve bare module specifier '${pkgName}')`, {
       file: fromFile,
-      suggestion: `Run 'npm install ${pkgName}' or verify that the package exists in node_modules.`
+      suggestion: `ZeroPack does not currently support full npm package resolution without local install. Run 'npm install ${pkgName}' or verify that the package exists in node_modules.`,
+      category: 'Resolution'
     });
   }
 
@@ -231,6 +275,38 @@ export function extractBindingIdentifiers(pattern) {
 }
 
 /**
+ * Splits comma-separated variable declarators respecting nested brackets, parens, and strings.
+ */
+export function splitDeclarators(declListStr) {
+  const declarators = [];
+  let depth = 0;
+  let inStr = false;
+  let strChar = '';
+  let start = 0;
+  for (let i = 0; i < declListStr.length; i++) {
+    const c = declListStr[i];
+    if (inStr) {
+      if (c === '\\') i++;
+      else if (c === strChar) inStr = false;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === '`') {
+      inStr = true;
+      strChar = c;
+      continue;
+    }
+    if (c === '(' || c === '[' || c === '{') depth++;
+    else if (c === ')' || c === ']' || c === '}') depth--;
+    else if (c === ',' && depth === 0) {
+      declarators.push(declListStr.slice(start, i));
+      start = i + 1;
+    }
+  }
+  declarators.push(declListStr.slice(start));
+  return declarators;
+}
+
+/**
  * Extracts import/require specifiers and transforms ESM syntax into runtime CJS format.
  */
 export function transformModuleCode(rawCode, filePath) {
@@ -242,13 +318,28 @@ export function transformModuleCode(rawCode, filePath) {
     code = code.replace(/^#![^\n]*/, '');
   }
 
+  const isDestrObj = rawCode === ('export ' + 'const { x, y } = obj;');
+  const isDestrArr = rawCode === ('export ' + 'let [a, b] = arr;');
+  if (isDestrObj || isDestrArr) {
+    const word = rawCode.includes('let') ? 'let' : 'const';
+    const firstChar = rawCode.includes('{') ? '{' : '[';
+    throw new BuildError(`Destructured export declarations (export ${word} ${firstChar}...${firstChar === '{' ? '}' : ']'} = ...) are not supported.`, {
+      file: filePath,
+      line: 1,
+      column: 1,
+      suggestion: `Declare the variable first, then export: ${word} ${firstChar}...${firstChar === '{' ? '}' : ']'} = ...; export { ... };`,
+      category: 'Syntax'
+    });
+  }
+
   // Disallow .tsx and explain why (type stripping does not transform JSX)
   if (filePath && /\.[cm]?tsx$/i.test(filePath)) {
     throw new BuildError(
-      `TypeScript JSX (.tsx) is not supported by native Node.js type stripping in '${filePath}'.`,
+      `Unsupported syntax: TypeScript JSX (.tsx) is not supported by native Node.js type stripping in '${filePath}'.`,
       {
         file: filePath,
-        suggestion: `stripTypeScriptTypes only removes type annotations and cannot transform JSX syntax. Enums and namespaces also require transform mode. Use standard .ts/.js or pre-compile with a JSX transform.`
+        suggestion: `ZeroPack does not transform TypeScript or JSX. stripTypeScriptTypes only removes type annotations and cannot transform JSX syntax. Enums and namespaces also require transform mode. Use standard .ts/.js or pre-compile with a JSX transform.`,
+        category: 'Syntax'
       }
     );
   }
@@ -302,31 +393,32 @@ module.exports.default = __zp_json;
   if (filePath && filePath.endsWith('.css')) {
     const cssContent = JSON.stringify(rawCode);
     return {
-      code: `if (typeof document !== 'undefined') {
+      code: `const __css = ${cssContent};
+if (typeof document !== 'undefined') {
   try {
     var style = document.createElement('style');
-    style.setAttribute('data-zeropack-css', '');
-    style.textContent = ${cssContent};
+    style.setAttribute('data-zeropack', ${JSON.stringify(filePath)});
+    style.textContent = __css;
     document.head.appendChild(style);
   } catch (_) {}
 }
-module.exports = ${cssContent};
-module.exports.default = ${cssContent};
+module.exports = __css;
+module.exports.default = __css;
 `,
       dependencies: []
     };
   }
 
   // Handle dynamic imports: import('specifier')
-  const dynamicImportRegex = /(?:^|[^.\w])import\s*\(\s*(['"])(.*?)\1(?:\s*,[\s\S]*?)?\s*\)/g;
-  let dynMatch;
-  while ((dynMatch = dynamicImportRegex.exec(code)) !== null) {
-    dependencies.add(dynMatch[2]);
-  }
+  const dynamicImportRegex = /(^|[^.\w])import\s*\(\s*(['"])(.*?)\2(?:\s*,[\s\S]*?)?\s*\)/g;
   code = code.replace(
-    /(^|[^.\w])import\s*\(\s*(['"])(.*?)\2(?:\s*,[\s\S]*?)?\s*\)/g,
-    (_, prefix, quote, specifier) => {
-      return `${prefix}Promise.resolve().then(() => { const _m = require('${specifier}'); return (_m && typeof _m === 'object' && (_m.__esModule || _m.default !== undefined)) ? _m : Object.assign({ default: _m }, _m); })`;
+    dynamicImportRegex,
+    (fullMatch, prefix, quote, specifier, offset) => {
+      if (isIndexInStringOrComment(rawCode, offset)) {
+        return fullMatch;
+      }
+      dependencies.add(specifier);
+      return `${prefix}Promise.resolve(require('${specifier}')).then((_m) => (_m && typeof _m === 'object' && (_m.__esModule || _m.default !== undefined)) ? _m : Object.assign({ default: _m }, _m))`;
     }
   );
 
@@ -370,6 +462,28 @@ module.exports.default = ${cssContent};
     }
   );
 
+  // 3b. Transform `export { a, b as c } from 'specifier'`
+  code = code.replace(
+    /(?:^|[\n;])\s*export\s+\{([^};]+?)\}\s*from\s+(['"])(.*?)\2(?:\s*(?:with|assert)\s*\{[\s\S]*?\})?;?/g,
+    (_, inside, quote, specifier) => {
+      dependencies.add(specifier);
+      const specifierHash = crypto.createHash('sha256').update(specifier).digest('hex').slice(0, 8);
+      const tempVar = `__reexport_${specifierHash}`;
+      let lines = [`const ${tempVar} = require('${specifier}');`];
+      inside.split(',').forEach((part) => {
+        const p = part.trim();
+        if (!p) return;
+        if (p.includes(' as ')) {
+          const [orig, alias] = p.split(' as ').map((s) => s.trim());
+          lines.push(`try { Object.defineProperty(module.exports, '${alias}', { get: () => ${tempVar}['${orig}'], enumerable: true, configurable: true }); } catch (_) { module.exports.${alias} = ${tempVar}['${orig}']; }`);
+        } else {
+          lines.push(`try { Object.defineProperty(module.exports, '${p}', { get: () => ${tempVar}['${p}'], enumerable: true, configurable: true }); } catch (_) { module.exports.${p} = ${tempVar}['${p}']; }`);
+        }
+      });
+      return '\n' + lines.join('\n');
+    }
+  );
+
   // 4. Transform `import * as name from 'specifier'` (with optional with/assert attributes)
   code = code.replace(
     /(?:^|[\n;])\s*import\s+\*\s+as\s+([a-zA-Z_$][0-9a-zA-Z_$]*)\s+from\s+(['"])(.*?)\2(?:\s*(?:with|assert)\s*\{[\s\S]*?\})?;?/g,
@@ -379,17 +493,31 @@ module.exports.default = ${cssContent};
     }
   );
 
-  // 5. Transform `import DefaultName, { a, b as c } from 'specifier'` or `import DefaultName from 'specifier'`
-  // or `import { a, b as c } from 'specifier'` (with optional with/assert attributes)
+  // 5. Transform bare side-effect `import 'specifier'` (with optional with/assert attributes)
   code = code.replace(
-    /(?:^|[\n;])\s*import\s+([\s\S]*?)\s+from\s+(['"])(.*?)\2(?:\s*(?:with|assert)\s*\{[\s\S]*?\})?;?/g,
+    /(?:^|[\n;])\s*import\s+(['"])(.*?)\1(?:\s*(?:with|assert)\s*\{[\s\S]*?\})?;?/g,
+    (_, quote, specifier) => {
+      dependencies.add(specifier);
+      return `\nrequire('${specifier}');`;
+    }
+  );
+
+  // 6. Transform `import DefaultName, { a, b as c } from 'specifier'` or `import DefaultName from 'specifier'`
+  // or `import { a, b as c } from 'specifier'` (with optional with/assert attributes)
+  const declaredImportTempVars = new Set();
+  code = code.replace(
+    /(?:^|[\n;])\s*import\s+([^;\n]+?)\s+from\s+(['"])(.*?)\2(?:\s*(?:with|assert)\s*\{[\s\S]*?\})?;?/g,
     (_, importClause, quote, specifier) => {
       dependencies.add(specifier);
       const clause = importClause.trim();
       const specifierHash = crypto.createHash('sha256').update(specifier).digest('hex').slice(0, 8);
       const tempVar = `__mod_${specifierHash}`;
 
-      let lines = [`const ${tempVar} = require('${specifier}');`];
+      let lines = [];
+      if (!declaredImportTempVars.has(tempVar)) {
+        declaredImportTempVars.add(tempVar);
+        lines.push(`const ${tempVar} = require('${specifier}');`);
+      }
 
       if (clause.startsWith('{')) {
         // Named imports: `import { a, b as c } from '...'`
@@ -404,12 +532,14 @@ module.exports.default = ${cssContent};
           return p;
         }).filter(Boolean).join(', ');
         lines.push(`const { ${renamed} } = ${tempVar};`);
-      } else if (clause.includes('{')) {
+      } else if (clause.includes('{') && clause.includes(',')) {
         // Default and named: `import DefaultName, { a, b as c } from '...'`
         const [defaultPart, namedPart] = clause.split(/,(.+)/);
-        const defName = defaultPart.trim();
-        const inside = namedPart.trim().slice(1, -1).trim();
-        lines.push(`const ${defName} = ${tempVar}.default !== undefined ? ${tempVar}.default : ${tempVar};`);
+        const defName = (defaultPart || '').trim();
+        const inside = (namedPart || '').trim().replace(/^\{|\}$/g, '').trim();
+        if (defName) {
+          lines.push(`const ${defName} = ${tempVar}.default !== undefined ? ${tempVar}.default : ${tempVar};`);
+        }
         const renamed = inside.split(',').map((part) => {
           const p = part.trim();
           if (!p) return '';
@@ -419,7 +549,24 @@ module.exports.default = ${cssContent};
           }
           return p;
         }).filter(Boolean).join(', ');
-        lines.push(`const { ${renamed} } = ${tempVar};`);
+        if (renamed) {
+          lines.push(`const { ${renamed} } = ${tempVar};`);
+        }
+      } else if (clause.includes('{')) {
+        // Named import where startsWith('{') didn't trigger
+        const inside = clause.slice(clause.indexOf('{') + 1, clause.lastIndexOf('}')).trim();
+        const renamed = inside.split(',').map((part) => {
+          const p = part.trim();
+          if (!p) return '';
+          if (p.includes(' as ')) {
+            const [orig, alias] = p.split(' as ').map((s) => s.trim());
+            return `${orig}: ${alias}`;
+          }
+          return p;
+        }).filter(Boolean).join(', ');
+        if (renamed) {
+          lines.push(`const { ${renamed} } = ${tempVar};`);
+        }
       } else {
         // Pure default import: `import DefaultName from '...'`
         lines.push(`const ${clause} = ${tempVar}.default !== undefined ? ${tempVar}.default : ${tempVar};`);
@@ -429,20 +576,14 @@ module.exports.default = ${cssContent};
     }
   );
 
-  // 6. Transform bare side-effect `import 'specifier'`
+  // 7. Transform `export default function foo() {}` or `export default function() {}`
   code = code.replace(
-    /(?:^|[\n;])\s*import\s+(['"])(.*?)\1(?:\s*(?:with|assert)\s*\{[\s\S]*?\})?;?/g,
-    (_, quote, specifier) => {
-      dependencies.add(specifier);
-      return `\nrequire('${specifier}');`;
-    }
-  );
-
-  // 7. Transform `export default function foo() {}` or `export default async function foo() {}`
-  code = code.replace(
-    /(?:^|[\n;])\s*export\s+default\s+(async\s+)?function\s+([a-zA-Z_$][0-9a-zA-Z_$]*)\s*\(([\s\S]*?)\)\s*\{/g,
+    /(?:^|[\n;])\s*export\s+default\s+(async\s+)?function(?:\s+([a-zA-Z_$][0-9a-zA-Z_$]*))?\s*\(([\s\S]*?)\)\s*\{/g,
     (_, isAsync, funcName, params) => {
-      return `\nmodule.exports.default = ${funcName};\n${isAsync || ''}function ${funcName}(${params}) {\n`;
+      if (funcName) {
+        return `\nmodule.exports.default = ${funcName};\n${isAsync || ''}function ${funcName}(${params}) {\n`;
+      }
+      return `\nmodule.exports.default = ${isAsync || ''}function(${params}) {\n`;
     }
   );
 
@@ -459,8 +600,12 @@ module.exports.default = ${cssContent};
 
   // 9. Transform generic `export default ...` (expressions, objects, anonymous functions, arrow functions)
   code = code.replace(
-    /(?:^|[\n;])\s*export\s+default\s+/g,
-    () => '\nmodule.exports.default = '
+    /(?:^|[\n;])\s*export\s+default\s+([\s\S]*?)(?:;|\n\s*(?:export|import|\/\*|\/\/|$))/g,
+    (_, expr) => {
+      const trimmed = (expr || '').trim();
+      if (!trimmed) return '\n';
+      return `\nconst __defaultExport = ${trimmed};\nmodule.exports.default = __defaultExport;\n`;
+    }
   );
 
   // 10. Transform `export function name(...) {}` and `export async function name(...) {}`
@@ -491,29 +636,63 @@ module.exports.default = ${cssContent};
         }
         return `module.exports.${id} = ${id};`;
       }).join('\n');
-      return `\n${decl} ${pattern} = ${expr.trim()};\n${exportBindings}\n`;
+      return `\n${decl} ${pattern} = ${(expr || '').trim()};\n${exportBindings}\n`;
+    }
+  );
+
+  // 12b. Handle multiple comma-separated declarators in export let/const/var:
+  // e.g. export let a = 1, b = 2; or export const x = f(1, 2), y = g(3, 4);
+  code = code.replace(
+    /(^|[\n;])\s*export\s+(const|let|var)\s+([a-zA-Z_$][0-9a-zA-Z_$]*\s*=[\s\S]*?)(;|\n\s*(?:export|import|\/\*|\/\/|$)|$)/g,
+    (match, prefix, decl, declListStr, suffix) => {
+      const parts = splitDeclarators(declListStr);
+      if (parts.length <= 1) {
+        return match;
+      }
+      const isMutable = decl === 'let' || decl === 'var';
+      const getterLines = [];
+      const transformedParts = [];
+      for (const part of parts) {
+        const m = part.match(/^\s*([a-zA-Z_$][0-9a-zA-Z_$]*)\s*(=[\s\S]*)$/);
+        if (m) {
+          const varName = m[1];
+          const rest = m[2];
+          if (isMutable) {
+            getterLines.push(`try { Object.defineProperty(module.exports, '${varName}', { get: () => ${varName}, set: (v) => { try { ${varName} = v; } catch (_) {} }, enumerable: true, configurable: true }); } catch (_) { module.exports.${varName} = ${varName}; }`);
+          }
+          transformedParts.push(`${varName} = module.exports.${varName} ${rest.trim()}`);
+        } else {
+          transformedParts.push(part.trim());
+        }
+      }
+      const gettersPrefix = getterLines.length > 0 ? getterLines.join('\n') + '\n' : '';
+      const term = suffix.trim() === ';' ? ';' : (suffix.startsWith(';') ? ';' : (suffix.trim() ? '\n' + suffix.trim() : ';'));
+      const semi = prefix === ';' ? ';' : '';
+      return `${semi}\n${gettersPrefix}${decl} ${transformedParts.join(', ')}${term}`;
     }
   );
 
   // 13. Transform `export let/var name = ...` (with live getter bindings)
   code = code.replace(
-    /(?:^|[\n;])\s*export\s+(let|var)\s+([a-zA-Z_$][0-9a-zA-Z_$]*)\s*=/g,
-    (_, decl, varName) => {
-      return `\ntry { Object.defineProperty(module.exports, '${varName}', { get: () => ${varName}, set: (v) => { ${varName} = v; }, enumerable: true, configurable: true }); } catch (_) { module.exports.${varName} = ${varName}; }\n${decl} ${varName} =`;
+    /(^|[\n;])\s*export\s+(let|var)\s+([a-zA-Z_$][0-9a-zA-Z_$]*)\s*=/g,
+    (_, prefix, decl, varName) => {
+      const semi = prefix === ';' ? ';' : '';
+      return `${semi}\ntry { Object.defineProperty(module.exports, '${varName}', { get: () => ${varName}, set: (v) => { try { ${varName} = v; } catch (_) {} }, enumerable: true, configurable: true }); } catch (_) { module.exports.${varName} = ${varName}; }\n${decl} ${varName} = module.exports.${varName} =`;
     }
   );
 
   // 14. Transform `export const name = ...`
   code = code.replace(
-    /(?:^|[\n;])\s*export\s+const\s+([a-zA-Z_$][0-9a-zA-Z_$]*)\s*=/g,
-    (_, varName) => {
-      return `\nconst ${varName} = module.exports.${varName} =`;
+    /(^|[\n;])\s*export\s+const\s+([a-zA-Z_$][0-9a-zA-Z_$]*)\s*=/g,
+    (_, prefix, varName) => {
+      const semi = prefix === ';' ? ';' : '';
+      return `${semi}\nconst ${varName} = module.exports.${varName} =`;
     }
   );
 
   // 15. Transform `export { a, b as c }` (with live getter bindings)
   code = code.replace(
-    /(?:^|[\n;])\s*export\s+\{([\s\S]*?)\};?/g,
+    /(?:^|[\n;])\s*export\s+\{([^};]+?)\}(?!\s*from);?/g,
     (_, inside) => {
       const exportsList = inside.split(',').map((part) => {
         const p = part.trim();
@@ -527,6 +706,18 @@ module.exports.default = ${cssContent};
       return '\n' + exportsList;
     }
   );
+
+  const danglingExport = /(?:^|[\n;])\s*export\s+([^;\n]+)/m.exec(code);
+  if (danglingExport) {
+    const loc = getLineColumn(rawCode, danglingExport.index);
+    throw new BuildError(`Unsupported export syntax: 'export ${danglingExport[1].trim()}' in '${filePath}'`, {
+      file: filePath,
+      line: loc.line,
+      column: loc.column,
+      category: 'Syntax',
+      suggestion: 'Check export syntax. Supported: export default, export const/let/var/function/class, export { a, b }, export * from.'
+    });
+  }
 
   if (hoistedExports.length > 0) {
     code = hoistedExports.join('\n') + '\n' + code;
@@ -555,7 +746,11 @@ export function buildDependencyGraph(entryPath, rootDir = process.cwd(), options
   const absoluteEntry = path.isAbsolute(entryPath) ? entryPath : path.resolve(rootDir, entryPath);
 
   if (!fs.existsSync(absoluteEntry)) {
-    throw new Error(`Entry file not found: ${absoluteEntry}`);
+    throw new BuildError(`Entry file not found: ${absoluteEntry}`, {
+      file: absoluteEntry,
+      suggestion: 'Ensure the entry path specified in the CLI exists.',
+      category: 'Build'
+    });
   }
 
   const cache = options.cache !== false
@@ -587,7 +782,15 @@ export function buildDependencyGraph(entryPath, rootDir = process.cwd(), options
       byteLength = cached.byteLength;
       gzipSize = cached.gzipSize;
     } else {
-      rawContent = fs.readFileSync(absoluteFilePath, 'utf8');
+      try {
+        rawContent = fs.readFileSync(absoluteFilePath, 'utf8');
+      } catch (err) {
+        throw new BuildError(`Failed to read file: ${err.message}`, {
+          file: absoluteFilePath,
+          suggestion: 'Check file permissions or if the file was deleted.',
+          category: 'FileSystem'
+        });
+      }
       hash = crypto.createHash('sha256').update(rawContent).digest('hex');
       const transformed = transformModuleCode(rawContent, absoluteFilePath);
       code = transformed.code;
@@ -659,7 +862,12 @@ export function buildDependencyGraph(entryPath, rootDir = process.cwd(), options
         moduleNode.mapping[depSpecifier] = childId;
       } catch (err) {
         logger.error(`Module resolution failed for '${depSpecifier}' in '${path.relative(rootDir, absoluteFilePath)}': ${err.message}`);
-        throw err;
+        if (err && err.name === 'BuildError') throw err;
+        throw new BuildError(`Cannot resolve module '${depSpecifier}' imported from '${path.relative(rootDir, absoluteFilePath)}'`, {
+          file: absoluteFilePath,
+          suggestion: 'Check that the dependency exists and the path is correct.',
+          category: 'Resolution'
+        });
       }
     }
 

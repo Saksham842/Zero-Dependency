@@ -1,3 +1,4 @@
+import './styles.css';
 import { renderApp } from './components.js';
 
 console.log('[ZeroPack] Initializing application bundle...');
