@@ -28,10 +28,25 @@ for (const file of files) {
   } else {
     console.log('✖ FAIL');
     failedCount++;
+    const errMsg = (result.stderr || result.stdout || 'Test failed').trim();
     console.error(`\n=================== FAILURE IN ${file} ===================`);
-    if (result.stdout) console.error(result.stdout);
-    if (result.stderr) console.error(result.stderr);
+    console.error(errMsg);
     console.error(`===========================================================\n`);
+    
+    // GitHub Actions annotation format
+    const firstLine = errMsg.split(/\r?\n/).find(l => l.includes('Error') || l.includes('not ok')) || errMsg.split(/\r?\n/)[0] || 'Test suite failed';
+    const escapedMsg = firstLine.replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
+    console.log(`::error file=${file}::${escapedMsg}`);
+
+    if (process.env.GITHUB_STEP_SUMMARY) {
+      try {
+        fs.appendFileSync(
+          process.env.GITHUB_STEP_SUMMARY,
+          `### ❌ Failure in \`${file}\`\n\`\`\`\n${errMsg.slice(0, 2000)}\n\`\`\`\n\n`
+        );
+      } catch (_) {}
+    }
+
     hasFailure = true;
   }
 }
