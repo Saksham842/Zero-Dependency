@@ -1,0 +1,18 @@
+{
+  "version": 3,
+  "file": "bundle.js",
+  "sources": [
+    "src/components.js",
+    "src/index.js",
+    "src/math.js",
+    "src/utils.js"
+  ],
+  "sourcesContent": [
+    "import { formatGreeting, calculateCircleArea } from './utils.js';\n\nexport function renderApp(containerId = 'app') {\n  const container = document.getElementById(containerId);\n  if (!container) return;\n\n  const area = calculateCircleArea(5).toFixed(2);\n  const greeting = formatGreeting('Hackathon Innovator');\n\n  container.innerHTML = `\n    <div style=\"background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); color: #f8fafc; padding: 2rem; border-radius: 12px; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.5); font-family: system-ui, sans-serif; max-width: 600px; margin: 2rem auto; border: 1px solid #334155;\">\n      <div style=\"display: flex; align-items: center; gap: 12px; margin-bottom: 1rem;\">\n        <span style=\"font-size: 2rem;\">⚡</span>\n        <h1 style=\"margin: 0; font-size: 1.8rem; background: linear-gradient(to right, #38bdf8, #818cf8); -webkit-background-clip: text; -webkit-text-fill-color: transparent;\">ZeroPack Runtime Active</h1>\n      </div>\n      <p style=\"color: #94a3b8; line-height: 1.5;\">${greeting}</p>\n      <div style=\"background: #090d16; padding: 1rem; border-radius: 8px; border-left: 4px solid #38bdf8; margin: 1.5rem 0;\">\n        <p style=\"margin: 0; font-size: 0.95rem; color: #38bdf8;\"><strong>Live Calculation:</strong> Circle Area (r=5) = ${area}</p>\n      </div>\n      <div style=\"display: flex; gap: 10px; font-size: 0.85rem; color: #64748b;\">\n        <span>🛡️ 0 Dependencies</span>\n        <span>•</span>\n        <span>🚀 RFC 6455 HMR</span>\n        <span>•</span>\n        <span>📦 Deterministic IIFE</span>\n      </div>\n    </div>\n  `;\n}\n",
+    "import { renderApp } from './components.js';\n\nconsole.log('[ZeroPack] Initializing application bundle...');\n\nif (typeof window !== 'undefined') {\n  window.addEventListener('DOMContentLoaded', () => {\n    renderApp('app');\n  });\n  // Execute immediately if DOM is already ready\n  if (document.readyState === 'interactive' || document.readyState === 'complete') {\n    renderApp('app');\n  }\n} else {\n  console.log('[ZeroPack] Running in headless / CLI mode');\n}\n",
+    "// Math utility module\nexport function add(a, b) {\n  return a + b;\n}\n\nexport function multiply(a, b) {\n  return a * b;\n}\n\nexport const PI = 3.14159265359;\n",
+    "import { add, multiply, PI } from './math.js';\n\nexport function formatGreeting(name) {\n  const timestamp = new Date().toLocaleTimeString();\n  return `Hello ${name}! Built with ZeroPack at ${timestamp}`;\n}\n\nexport function calculateCircleArea(radius) {\n  return multiply(PI, multiply(radius, radius));\n}\n\nexport default {\n  formatGreeting,\n  calculateCircleArea\n};\n"
+  ],
+  "names": [],
+  "mappings": ";;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;AAAA;AACA;AACA;AACA;AACA;AACA;AACA;AACA;AACA;AACA;AACA;AACA;AACA;AACA;AACA;AACA;AACA;AACA;AACA;AACA;AACA;AACA;AACA;AACA;AACA;AACA;AACA;AACA;AACA;AACA;AACA;AACA;AACA;;;;;;;AChCA;AACA;AACA;AACA;AACA;AACA;AACA;AACA;AACA;AACA;AACA;AACA;AACA;AACA;AACA;AACA;AACA;AACA;;;;;;;ACjBA;AACA;AACA;AACA;AACA;AACA;AACA;AACA;AACA;AACA;AACA;AACA;AACA;;;;;;;ACZA;AACA;AACA;AACA;AACA;AACA;AACA;AACA;AACA;AACA;AACA;AACA;AACA;AACA;AACA;AACA;AACA;AACA;AACA;AACA;AACA;;;;"
+}

@@ -1,0 +1,6 @@
+{
+  "buildCommand": "node src/cli.js --minify && node scripts/prepare-vercel.js",
+  "outputDirectory": "public",
+  "cleanUrls": true,
+  "trailingSlash": false
+}

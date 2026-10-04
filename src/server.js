@@ -226,7 +226,7 @@ export async function startDevServer(options = {}) {
   } = options;
 
   let port = requestedPort;
-  if (autoPort) {
+  if (autoPort && requestedPort !== 0) {
     port = await findAvailablePort(requestedPort, host);
     if (port !== requestedPort) {
       logger.warn(`Port ${colors.yellow(requestedPort)} was in use, switched to available port ${colors.green(colors.bold(port))}`);
