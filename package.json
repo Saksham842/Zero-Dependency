@@ -18,12 +18,27 @@
     "test:realworld": "node scripts/realworld.js",
     "check": "node --test \"test/*.test.js\" test/test-server.js && node scripts/realworld.js"
   },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "files": [
+    "src",
+    "zeropack.js",
+    "README.md",
+    "LICENSE",
+    "STDLIB.md",
+    "CHANGELOG.md"
+  ],
   "keywords": [
     "bundler",
     "zero-dependency",
     "dev-server",
     "hmr",
     "minifier",
+    "source-maps",
+    "zero-config",
+    "rfc6455-websocket",
+    "esm-bundler",
     "node-native"
   ],
   "author": "ZeroPack Team",
