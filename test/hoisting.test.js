@@ -153,3 +153,97 @@ export function instantiateDefault(id) {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 });
+
+test('Hoisting: side-by-side comparison of circular const, class, and defclass against native Node ESM', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'zp-circ-esm-compare-'));
+  try {
+    // 1. Const test
+    fs.writeFileSync(path.join(tmpDir, 'const_a.mjs'), `
+import { getVal } from './const_b.mjs';
+export const VAL = 123;
+export function run() { return getVal(); }
+`);
+    fs.writeFileSync(path.join(tmpDir, 'const_b.mjs'), `
+import { VAL } from './const_a.mjs';
+export function getVal() { return VAL !== undefined ? VAL : 0; }
+`);
+    fs.copyFileSync(path.join(tmpDir, 'const_a.mjs'), path.join(tmpDir, 'const_a.js'));
+    fs.copyFileSync(path.join(tmpDir, 'const_b.mjs'), path.join(tmpDir, 'const_b.js'));
+
+    const esmMod1 = await import('file:///' + path.join(tmpDir, 'const_a.mjs').replace(/\\/g, '/'));
+    const graph1 = buildDependencyGraph(path.join(tmpDir, 'const_a.js'), tmpDir);
+    const bundle1 = generateBundle(graph1);
+    const sandbox1 = { module: { exports: {} }, exports: {}, console };
+    vm.createContext(sandbox1);
+    const bMod1 = vm.runInContext(bundle1.code, sandbox1);
+
+    assert.strictEqual(typeof esmMod1.run, 'function');
+    assert.strictEqual(typeof bMod1.run, 'function');
+
+    // 2. Class test
+    fs.writeFileSync(path.join(tmpDir, 'class_a.mjs'), `
+import { createObj } from './class_b.mjs';
+export class Widget { constructor(x) { this.x = x; } }
+export function run() { return createObj(10); }
+`);
+    fs.writeFileSync(path.join(tmpDir, 'class_b.mjs'), `
+import { Widget } from './class_a.mjs';
+export function createObj(x) { return typeof Widget === 'function' ? new Widget(x) : { fallback: x }; }
+`);
+    fs.copyFileSync(path.join(tmpDir, 'class_a.mjs'), path.join(tmpDir, 'class_a.js'));
+    fs.copyFileSync(path.join(tmpDir, 'class_b.mjs'), path.join(tmpDir, 'class_b.js'));
+
+    const esmMod2 = await import('file:///' + path.join(tmpDir, 'class_a.mjs').replace(/\\/g, '/'));
+    const graph2 = buildDependencyGraph(path.join(tmpDir, 'class_a.js'), tmpDir);
+    const bundle2 = generateBundle(graph2);
+    const sandbox2 = { module: { exports: {} }, exports: {}, console };
+    vm.createContext(sandbox2);
+    const bMod2 = vm.runInContext(bundle2.code, sandbox2);
+
+    assert.strictEqual(typeof esmMod2.run, 'function');
+    assert.strictEqual(typeof bMod2.run, 'function');
+
+    // 3. Default class test
+    fs.writeFileSync(path.join(tmpDir, 'def_a.mjs'), `
+import { createDef } from './def_b.mjs';
+export default class Engine { constructor(y) { this.y = y; } }
+export function run() { return createDef(20); }
+`);
+    fs.writeFileSync(path.join(tmpDir, 'def_b.mjs'), `
+import Engine from './def_a.mjs';
+export function createDef(y) { return typeof Engine === 'function' ? new Engine(y) : { fallback: y }; }
+`);
+    fs.copyFileSync(path.join(tmpDir, 'def_a.mjs'), path.join(tmpDir, 'def_a.js'));
+    fs.copyFileSync(path.join(tmpDir, 'def_b.mjs'), path.join(tmpDir, 'def_b.js'));
+
+    const esmMod3 = await import('file:///' + path.join(tmpDir, 'def_a.mjs').replace(/\\/g, '/'));
+    const graph3 = buildDependencyGraph(path.join(tmpDir, 'def_a.js'), tmpDir);
+    const bundle3 = generateBundle(graph3);
+    const sandbox3 = { module: { exports: {} }, exports: {}, console };
+    vm.createContext(sandbox3);
+    const bMod3 = vm.runInContext(bundle3.code, sandbox3);
+
+    assert.strictEqual(typeof esmMod3.run, 'function');
+    assert.strictEqual(typeof bMod3.run, 'function');
+
+    // 4. Eval-time circular access triggers TDZ in native ESM
+    fs.writeFileSync(path.join(tmpDir, 'tdz_a.mjs'), `
+import { b } from './tdz_b.mjs';
+export const a = 1;
+`);
+    fs.writeFileSync(path.join(tmpDir, 'tdz_b.mjs'), `
+import { a } from './tdz_a.mjs';
+export const b = a + 1;
+`);
+    let nativeEsmThrew = false;
+    try {
+      await import('file:///' + path.join(tmpDir, 'tdz_a.mjs').replace(/\\/g, '/'));
+    } catch (err) {
+      nativeEsmThrew = err instanceof ReferenceError;
+    }
+    assert.strictEqual(nativeEsmThrew, true, 'Native ESM must throw ReferenceError for eval-time circular access');
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
