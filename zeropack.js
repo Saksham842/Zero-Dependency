@@ -394,6 +394,7 @@ export function parseCliArgs(args = process.argv.slice(2)) {
     sourcemap: { type: 'boolean', short: 's' },
     open: { type: 'boolean' },
     'no-open': { type: 'boolean' },
+    'auto-port': { type: 'boolean' },
     config: { type: 'string', short: 'c' },
     define: { type: 'string' },
     env: { type: 'string', default: '.env' },
@@ -458,12 +459,10 @@ export function parseCliArgs(args = process.argv.slice(2)) {
     // If subcommand is 'init' -> init mode
     // If subcommand is 'build' -> serve: false
     // If subcommand is 'serve' -> serve: true
-    // If no subcommand:
-    //   If values.serve explicitly passed -> values.serve
-    //   Else if values.minify or values.out passed without serve -> serve: false
-    //   Else if args has 0 items (zero-config) -> serve: true
-    //   Else if cfg.serve !== undefined -> Boolean(cfg.serve)
-    //   Else -> false
+    // If explicit --serve passed -> values.serve
+    // If explicit build flags passed without serve (--minify, --out) -> serve: false
+    // If cfg.serve !== undefined -> Boolean(cfg.serve)
+    // Else (zero-config / no build flags) -> serve: true
     let serve = false;
     if (subcommand === 'serve') {
       serve = true;
@@ -471,10 +470,12 @@ export function parseCliArgs(args = process.argv.slice(2)) {
       serve = Boolean(values.serve);
     } else if (values.serve !== undefined) {
       serve = Boolean(values.serve);
-    } else if (args.length === 0) {
-      serve = true; // Zero-config defaults to dev server!
+    } else if (values.minify || values.out) {
+      serve = false;
     } else if (cfg.serve !== undefined) {
       serve = Boolean(cfg.serve);
+    } else {
+      serve = true; // Zero-config defaults to dev server!
     }
 
     // Browser opening behavior:
@@ -502,6 +503,8 @@ export function parseCliArgs(args = process.argv.slice(2)) {
     const sourcemap = values.sourcemap !== undefined ? Boolean(values.sourcemap) : Boolean(cfg.sourcemap);
     const define = { ...(cfg.define || {}), ...cliDefine };
 
+    const autoPort = values['auto-port'] !== undefined ? Boolean(values['auto-port']) : (cfg.autoPort !== undefined ? Boolean(cfg.autoPort) : true);
+
     return {
       subcommand,
       targetDir,
@@ -511,6 +514,7 @@ export function parseCliArgs(args = process.argv.slice(2)) {
       port,
       host,
       open,
+      autoPort,
       minify,
       sourcemap,
       define,
@@ -608,6 +612,7 @@ export async function runCli(args = process.argv.slice(2)) {
         port: config.port,
         host: config.host,
         open: config.open,
+        autoPort: config.autoPort,
         entry: config.entry,
         out: config.out,
         minify: config.minify,
@@ -3281,19 +3286,46 @@ export const DASHBOARD_HTML = `<!DOCTYPE html>
 // ==========================================
 /**
  * Checks whether a TCP port is currently available to listen on.
+ * Handles dual-stack environments (IPv4 / IPv6) by verifying that
+ * no other process is actively accepting connections, and that the
+ * port can be cleanly bound.
  */
 export function isPortAvailable(port, host = '0.0.0.0') {
   return new Promise((resolve) => {
-    const tester = net.createServer();
-    tester.once('error', () => {
-      resolve(false);
+    const connectHost = (host === '0.0.0.0') ? '127.0.0.1' : host;
+    let resolved = false;
+    function finish(val) {
+      if (!resolved) {
+        resolved = true;
+        resolve(val);
+      }
+    }
+
+    // 1. If connection succeeds, port is actively in use by another process
+    const client = net.createConnection({ port, host: connectHost });
+    client.once('connect', () => {
+      client.destroy();
+      finish(false);
     });
-    tester.once('listening', () => {
-      tester.close(() => {
-        resolve(true);
+    client.once('error', () => {
+      client.destroy();
+      // 2. Connection failed, now verify we can bind
+      const tester = net.createServer();
+      tester.once('error', () => finish(false));
+      tester.once('listening', () => {
+        tester.close(() => finish(true));
       });
+      if (host === 'localhost') {
+        tester.listen(port);
+      } else {
+        tester.listen(port, host);
+      }
     });
-    tester.listen(port, host);
+
+    setTimeout(() => {
+      client.destroy();
+      finish(true);
+    }, 1000);
   });
 }
 
@@ -3470,7 +3502,7 @@ export async function startDevServer(options = {}) {
 
   let port = requestedPort;
   if (autoPort) {
-    port = await findAvailablePort(requestedPort, host === 'localhost' ? '127.0.0.1' : host);
+    port = await findAvailablePort(requestedPort, host);
     if (port !== requestedPort) {
       logger.warn(`Port ${colors.yellow(requestedPort)} was in use, switched to available port ${colors.green(colors.bold(port))}`);
     }

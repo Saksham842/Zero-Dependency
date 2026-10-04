@@ -177,7 +177,7 @@ open http://localhost:3000/__zeropack
 | `--sourcemap` | `-s` | `false` | Emit SourceMap v3 (`.map` file) alongside bundle |
 | `--port <number>` | `-p` | `3000` | Port for dev server |
 | `--host <string>` | | `localhost` | Host interface for dev server |
-| `--auto-port` | | `false` | Automatically find next open port if requested port is in use |
+| `--auto-port` | | `true` | Automatically find next open port if requested port is in use |
 | `--open` | | `false` | Automatically launch default browser on dev server start |
 | `--no-open` | | `false` | Prevent opening browser (overrides config or zero-config defaults) |
 | `--define.<K>=<V>` | | | Compile-time identifier replacement (e.g. `--define.ENV=prod`) |
@@ -245,23 +245,26 @@ When running in development mode (`zeropack serve` or `zeropack`), navigate to *
 Benchmarks measured on **Windows 11 x64**, **Node.js v22.22.2**, on a local NTFS SSD using [`scripts/bench.js`](scripts/bench.js):
 
 ### 1. Small Application (4 ESM Modules)
-- **Cold Bundling:** `1.03 ms` (median), `2.22 ms` (mean)
-- **Production Build (Minify + Source Map v3 + Gzip Calculation):** `0.84 ms` (median), `1.01 ms` (mean)
+- **Cold Bundling:** `0.94 ms` (median), `2.09 ms` (mean)
+- **Production Build (Minify + Source Map v3 + Gzip Calculation):** `0.94 ms` (median), `1.06 ms` (mean)
 
-### 2. Minifier Throughput (5 MB Generated JavaScript Workload)
-- **Workload Size:** 5.00 MB (`5,242,965 bytes`)
-- **Execution Time:** `104.70 ms`
-- **Throughput:** **`47.76 MB/s`**
-- **Speedup:** **>40.5x faster** than the baseline unoptimized minifier (~1.18 MB/s).
+### 2. Minifier Throughput on Real Library Sources (Multi-File Codebase)
+- **Workload Composition:** 14 real JavaScript library and compiler files (`test/fixtures/tiny-emitter`, `test/fixtures/kleur-mini`, `src/math.js`, `src/utils.js`, `src/components.js`, `src/sourcemap.js`, `src/parser.js`, `src/bundler.js`, `src/server.js`, `src/dashboard.js`, `src/cli.js`, etc.)
+- **Workload Size:** `144.65 KB` (`148,122 bytes`) of real, non-repeating JavaScript code
+- **Minified Size:** `113.26 KB` (`21.7%` size reduction)
+- **Execution Time:** `1.56 ms` (median), `2.69 ms` (mean)
+- **Throughput:** **`52.55 MB/s`**
+- **Execution Verification:** **✔ PASS** (Original and minified code executed in isolated `node:vm` sandboxes and verified to produce 100% identical outputs)
 
 ### 3. Large Project Benchmark (500 ESM Modules)
-- **Project Structure:** 500 connected ESM modules with mixed exports and imports.
-- **Cold Build (All 500 parsed from disk):** `68.53 ms`
-- **Incremental Rebuild (1 file modified, 499 cached):** `21.80 ms`
-- **Incremental Rebuild Speedup:** **`3.1x faster`**
+- **Project Structure:** 500 interdependent ESM modules with mixed imports and exports
+- **Cold Build (All 500 parsed from disk):** `124.85 ms`
+- **Incremental Rebuild (1 file modified, 499 cached):** `34.38 ms`
+- **Incremental Rebuild Speedup:** **`3.6x faster`**
 
 ### 4. Memory Footprint
-- **Heap Used:** `~81.4 MB` during 500-module compilation and 5 MB minification stress testing.
+- **Heap Used:** `~28.7 MB`
+- **RSS:** `~93.2 MB`
 
 ---
 
@@ -355,21 +358,30 @@ Wraps all modules into a scoped Immediately Invoked Function Expression (IIFE) w
 
 ## 🧪 Real-World Validation & Differential Testing
 
-ZeroPack is validated against real-world ESM packages and edge cases using differential testing under `node:vm` compared directly against native Node.js ESM output:
+ZeroPack is validated against real-world ESM packages, real npm ecosystem modules, and complex edge cases using differential testing under `node:vm` compared directly against native Node.js ESM output:
 
-- **`tiny-emitter`:** Pure ESM event emitter subscribing and firing events across multiple listeners.
-- **`kleur-mini`:** ANSI string styler with nested function chaining and color resets.
-- **Mutually Recursive Cycles:** Modules `a.js` and `b.js` importing each other's functions with hoisted declaration validation.
-- **JSON Modules:** Importing JSON files using modern `with { type: 'json' }` attributes.
-- **Dynamic Imports:** Asynchronous `import()` evaluating bundle modules and resolving Promises.
-- **CSS Modules:** Importing `.css` files into JavaScript components and validating DOM stylesheet injection.
-- **Minifier Differential Testing:** Complex expressions (regex vs division, nested template literals, ASI boundaries) executed in isolated VMs before and after minification to verify identical execution semantics.
+- **Real Ecosystem NPM Packages ([`scripts/realworld-npm.js`](scripts/realworld-npm.js)):**
+  - **`nanoid`:** Generates collision-resistant string IDs using Node's crypto CSPRNG.
+  - **`dayjs`:** Parses dates and formats chronological representations.
+  - **`mitt`:** Functional 200-byte event emitter library.
+  - **`camelcase`:** Transforms dash/dot/underscore/space-delimited strings to camelCase.
+  - **`ms`:** Converts human-readable time strings into milliseconds.
+  *(All tested in external temporary directories via differential comparison against native Node.js ESM output)*
+- **Internal Real-World Fixtures ([`scripts/realworld.js`](scripts/realworld.js)):**
+  - **`tiny-emitter`:** Pure ESM event emitter subscribing and firing events across multiple listeners.
+  - **`kleur-mini`:** ANSI string styler with nested function chaining and color resets.
+  - **Mutually Recursive Cycles:** Modules `a.js` and `b.js` importing each other's functions, classes, and consts with native ESM parity.
+  - **JSON Modules:** Importing JSON files using modern `with { type: 'json' }` attributes.
+  - **Dynamic Imports:** Asynchronous `import()` evaluating bundle modules and resolving Promises.
+  - **CSS Modules:** Importing `.css` files into JavaScript components and validating DOM stylesheet injection.
+  - **Minifier Differential Testing:** Complex expressions (regex vs division, nested template literals, ASI boundaries) executed in isolated VMs before and after minification to verify identical execution semantics.
+  - **Shebang Preservation:** Verifies `#!/usr/bin/env node` is preserved as the exact first line of executable bundles across unminified and minified outputs.
 
 ---
 
 ## 📦 Single-File Standalone Distribution
 
-ZeroPack includes a standalone single-file compiler in [`src/build-tools.js`](src/build-tools.js) that packages the entire bundler, parser, minifier, and dev server into a single executable file: **`zeropack.js`** (~127 kB).
+ZeroPack includes a standalone single-file compiler in [`src/build-tools.js`](src/build-tools.js) that packages the entire bundler, parser, minifier, and dev server into a single executable file: **`zeropack.js`** (~129 kB).
 
 ```bash
 # Generate standalone distribution and verify checksums:

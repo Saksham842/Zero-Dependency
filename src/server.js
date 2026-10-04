@@ -11,19 +11,46 @@ import { DASHBOARD_HTML } from './dashboard.js';
 
 /**
  * Checks whether a TCP port is currently available to listen on.
+ * Handles dual-stack environments (IPv4 / IPv6) by verifying that
+ * no other process is actively accepting connections, and that the
+ * port can be cleanly bound.
  */
 export function isPortAvailable(port, host = '0.0.0.0') {
   return new Promise((resolve) => {
-    const tester = net.createServer();
-    tester.once('error', () => {
-      resolve(false);
+    const connectHost = (host === '0.0.0.0') ? '127.0.0.1' : host;
+    let resolved = false;
+    function finish(val) {
+      if (!resolved) {
+        resolved = true;
+        resolve(val);
+      }
+    }
+
+    // 1. If connection succeeds, port is actively in use by another process
+    const client = net.createConnection({ port, host: connectHost });
+    client.once('connect', () => {
+      client.destroy();
+      finish(false);
     });
-    tester.once('listening', () => {
-      tester.close(() => {
-        resolve(true);
+    client.once('error', () => {
+      client.destroy();
+      // 2. Connection failed, now verify we can bind
+      const tester = net.createServer();
+      tester.once('error', () => finish(false));
+      tester.once('listening', () => {
+        tester.close(() => finish(true));
       });
+      if (host === 'localhost') {
+        tester.listen(port);
+      } else {
+        tester.listen(port, host);
+      }
     });
-    tester.listen(port, host);
+
+    setTimeout(() => {
+      client.destroy();
+      finish(true);
+    }, 1000);
   });
 }
 
@@ -200,7 +227,7 @@ export async function startDevServer(options = {}) {
 
   let port = requestedPort;
   if (autoPort) {
-    port = await findAvailablePort(requestedPort, host === 'localhost' ? '127.0.0.1' : host);
+    port = await findAvailablePort(requestedPort, host);
     if (port !== requestedPort) {
       logger.warn(`Port ${colors.yellow(requestedPort)} was in use, switched to available port ${colors.green(colors.bold(port))}`);
     }
