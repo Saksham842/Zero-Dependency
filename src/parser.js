@@ -311,7 +311,7 @@ export function splitDeclarators(declListStr) {
  */
 export function transformModuleCode(rawCode, filePath) {
   const dependencies = new Set();
-  let code = rawCode;
+  let code = (rawCode || '').replace(/\r\n/g, '\n');
 
   // Strip hashbang if present so it doesn't break module wrapping or export hoisting
   if (code.startsWith('#!')) {
