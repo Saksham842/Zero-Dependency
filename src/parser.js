@@ -457,20 +457,10 @@ module.exports.default = ${cssContent};
     }
   );
 
-  // 9. Transform generic `export default ...` (expressions, objects, anonymous functions/classes)
+  // 9. Transform generic `export default ...` (expressions, objects, anonymous functions, arrow functions)
   code = code.replace(
-    /(?:^|[\n;])\s*export\s+default\s+([\s\S]+?)(?:;|\n\s*(?:export|import|\/\*|\/\/|$))/g,
-    (match, expr) => {
-      const trimmedExpr = expr.trim();
-      if (!trimmedExpr) return match;
-      if (trimmedExpr.startsWith('function') && !trimmedExpr.startsWith('function(') && !trimmedExpr.startsWith('function (')) {
-        return match; // Named function handled above
-      }
-      if (trimmedExpr.startsWith('class') && !trimmedExpr.startsWith('class{') && !trimmedExpr.startsWith('class {')) {
-        return match; // Named class handled above
-      }
-      return `\nconst __defaultExport = (${trimmedExpr});\nmodule.exports.default = __defaultExport;\n`;
-    }
+    /(?:^|[\n;])\s*export\s+default\s+/g,
+    () => '\nmodule.exports.default = '
   );
 
   // 10. Transform `export function name(...) {}` and `export async function name(...) {}`
@@ -505,11 +495,11 @@ module.exports.default = ${cssContent};
     }
   );
 
-  // 13. Transform `export let/var name = ...` (with live bindings)
+  // 13. Transform `export let/var name = ...` (with live getter bindings)
   code = code.replace(
-    /(?:^|[\n;])\s*export\s+(let|var)\s+([a-zA-Z_$][0-9a-zA-Z_$]*)\s*=\s*([\s\S]*?)(?:;|\n\s*(?:export|import|\/\*|\/\/|$))/g,
-    (_, decl, varName, expr) => {
-      return `\n${decl} ${varName} = ${expr.trim()};\ntry { Object.defineProperty(module.exports, '${varName}', { get: () => ${varName}, set: (v) => { ${varName} = v; }, enumerable: true, configurable: true }); } catch (_) { module.exports.${varName} = ${varName}; }\n`;
+    /(?:^|[\n;])\s*export\s+(let|var)\s+([a-zA-Z_$][0-9a-zA-Z_$]*)\s*=/g,
+    (_, decl, varName) => {
+      return `\ntry { Object.defineProperty(module.exports, '${varName}', { get: () => ${varName}, set: (v) => { ${varName} = v; }, enumerable: true, configurable: true }); } catch (_) { module.exports.${varName} = ${varName}; }\n${decl} ${varName} =`;
     }
   );
 
