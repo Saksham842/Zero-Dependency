@@ -95,10 +95,11 @@ test('Fresh-clone test: zero-config build, serve, and port fallback with no prio
     console.log(`[TEST] Instance 1 assigned port: ${port1}`);
 
     // Wait for instance 1 to bind and serve
-    const res1 = await waitForServer(`http://localhost:${port1}/`);
+    const host1 = '127.0.0.1';
+    const res1 = await waitForServer(`http://${host1}:${port1}/`).catch(() => waitForServer(`http://localhost:${port1}/`));
     assert.strictEqual(res1.statusCode, 200, `Instance 1 on port ${port1} must respond with 200 OK`);
 
-    const dashRes1 = await fetchHttp(`http://localhost:${port1}/__zeropack`);
+    const dashRes1 = await fetchHttp(`http://${host1}:${port1}/__zeropack`).catch(() => fetchHttp(`http://localhost:${port1}/__zeropack`));
     assert.strictEqual(dashRes1.statusCode, 200, 'Developer Dashboard must respond with 200 OK');
 
     // Verify build artifact was generated automatically
@@ -121,7 +122,7 @@ test('Fresh-clone test: zero-config build, serve, and port fallback with no prio
     console.log(`[TEST] Instance 2 assigned port: ${port2}`);
 
     assert.notStrictEqual(port2, port1, 'Instance 2 must select a different, non-conflicting port');
-    const res2 = await waitForServer(`http://localhost:${port2}/`);
+    const res2 = await waitForServer(`http://${host1}:${port2}/`).catch(() => waitForServer(`http://localhost:${port2}/`));
     assert.strictEqual(res2.statusCode, 200, `Instance 2 on port ${port2} must respond with 200 OK`);
   } finally {
     if (proc1) {
