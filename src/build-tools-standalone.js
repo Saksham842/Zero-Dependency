@@ -40,7 +40,7 @@ export function createStandaloneSource(SRC_DIR) {
 
   for (const modName of modules) {
     const modPath = path.join(SRC_DIR, modName);
-    let code = fs.readFileSync(modPath, 'utf8');
+    let code = fs.readFileSync(modPath, 'utf8').replace(/\r\n/g, '\n');
 
     // Strip shebang if present
     if (code.startsWith('#!')) {

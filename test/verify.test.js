@@ -15,7 +15,7 @@ test('npm run verify succeeds without mutating tracked files', () => {
   const result = spawnSync(npmCmd, ['run', 'verify'], {
     cwd: process.cwd(),
     encoding: 'utf8',
-    shell: process.platform === 'win32'
+    shell: true
   });
 
   const after = spawnSync('git', ['status', '--short'], {
