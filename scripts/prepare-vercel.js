@@ -70,6 +70,7 @@ const configJson = {
   version: 3,
   routes: [
     { handle: 'filesystem' },
+    { src: '^/$', dest: '/index.html' },
     { src: '^/dashboard$', dest: '/dashboard.html' },
     { src: '^/api/stats$', dest: '/api/stats.json' }
   ],
