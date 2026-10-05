@@ -1,27 +1,51 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="dark">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ZeroPack — 100% Zero-Dependency JS Bundler & RFC 6455 HMR</title>
-  <meta name="description" content="Production-grade, zero-dependency JavaScript bundler, minifier, and RFC 6455 WebSocket HMR dev server built exclusively with Node.js native core libraries.">
-  <meta name="theme-color" content="#09090c">
+  <title>ZeroPack — 100% Zero-Dependency JS Bundler & Dev Engine</title>
+  <meta name="description" content="High-performance, zero-dependency JavaScript bundler, minifier, and RFC 6455 WebSocket HMR dev server built exclusively with Node.js standard libraries.">
+  <meta name="theme-color" content="#09090b">
 
-  <!-- Preconnect to Google Fonts for instant typography loading -->
+  <!-- Inter and JetBrains Mono Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', '-apple-system', 'BlinkMacSystemFont', 'system-ui', 'sans-serif'],
+            mono: ['JetBrains Mono', 'ui-monospace', 'monospace'],
+          },
+          colors: {
+            brand: {
+              50: '#f0fdf4',
+              400: '#4ade80',
+              500: '#22c55e',
+              600: '#16a34a',
+            }
+          }
+        }
+      }
+    }
+  </script>
 
   <style>
     body {
       margin: 0;
-      background: #09090c;
-      color: #f8fafc;
-      font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+      background-color: #09090b;
+      color: #fafafa;
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
     }
   </style>
 </head>
-<body>
+<body class="bg-zinc-950 text-zinc-100 min-h-screen antialiased selection:bg-emerald-500/20 selection:text-emerald-300">
   <div id="app"></div>
   <script src="/dist/bundle.js"></script>
 </body>
