@@ -47,7 +47,7 @@ export function createModuleState(filePath, id) {
 export function processFile(filePath) {
   let raw;
   try {
-    raw = fs.readFileSync(filePath, 'utf8');
+    raw = fs.readFileSync(filePath, 'utf8').replace(/\r\n/g, '\n');
   } catch (err) {
     throw new BuildError({
       message: `Failed to read file: ${err.message}`,

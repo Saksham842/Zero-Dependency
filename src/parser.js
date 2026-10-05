@@ -391,7 +391,7 @@ module.exports.default = __zp_json;
 
   // If CSS file, export CSS string and inject <style> tag in DOM environments
   if (filePath && filePath.endsWith('.css')) {
-    const cssContent = JSON.stringify(rawCode);
+    const cssContent = JSON.stringify(code);
     const relPath = path.relative(process.cwd(), filePath).replace(/\\/g, '/');
     return {
       code: `const __css = ${cssContent};
@@ -784,7 +784,7 @@ export function buildDependencyGraph(entryPath, rootDir = process.cwd(), options
       gzipSize = cached.gzipSize;
     } else {
       try {
-        rawContent = fs.readFileSync(absoluteFilePath, 'utf8');
+        rawContent = fs.readFileSync(absoluteFilePath, 'utf8').replace(/\r\n/g, '\n');
       } catch (err) {
         throw new BuildError(`Failed to read file: ${err.message}`, {
           file: absoluteFilePath,
