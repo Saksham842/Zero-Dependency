@@ -8,7 +8,6 @@
     "zeropack": "./zeropack.js"
   },
   "scripts": {
-    "start": "node src/cli.js",
     "dev": "node src/cli.js --serve",
     "build": "node src/cli.js --minify && node scripts/prepare-vercel.js",
     "vercel-build": "node src/cli.js --minify && node scripts/prepare-vercel.js",

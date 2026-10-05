@@ -1,4 +1,5 @@
 {
+  "framework": null,
   "buildCommand": "node src/cli.js --minify && node scripts/prepare-vercel.js",
   "outputDirectory": "public",
   "rewrites": [
