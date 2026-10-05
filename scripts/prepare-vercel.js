@@ -40,7 +40,7 @@ const statsPayload = JSON.stringify({
     'Zero-dependency JavaScript minifier with token compression',
     'V3 Source Maps with Base64-VLQ encoder'
   ],
-  timestamp: new Date().toISOString()
+  timestamp: '2026-10-05T00:00:00.000Z'
 }, null, 2);
 fs.writeFileSync(path.join(statsDir, 'stats'), statsPayload, 'utf8');
 fs.writeFileSync(path.join(statsDir, 'stats.json'), statsPayload, 'utf8');
@@ -70,10 +70,17 @@ const configJson = {
   version: 3,
   routes: [
     { handle: 'filesystem' },
-    { src: '/dashboard', dest: '/dashboard.html' },
-    { src: '/api/stats', dest: '/api/stats' },
-    { src: '/(.*)', dest: '/index.html' }
-  ]
+    { src: '^/dashboard$', dest: '/dashboard.html' },
+    { src: '^/api/stats$', dest: '/api/stats.json' }
+  ],
+  overrides: {
+    'index.html': {
+      path: ''
+    },
+    'dashboard.html': {
+      path: 'dashboard'
+    }
+  }
 };
 
 fs.writeFileSync(path.join(vercelOutputDir, 'config.json'), JSON.stringify(configJson, null, 2), 'utf8');
