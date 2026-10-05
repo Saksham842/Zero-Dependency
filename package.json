@@ -11,6 +11,7 @@
     "start": "node src/cli.js",
     "dev": "node src/cli.js --serve",
     "build": "node src/cli.js --minify && node scripts/prepare-vercel.js",
+    "vercel-build": "node src/cli.js --minify && node scripts/prepare-vercel.js",
     "build-standalone": "node src/build-tools.js",
     "verify": "node src/build-tools.js --verify",
     "bench": "node scripts/bench.js",

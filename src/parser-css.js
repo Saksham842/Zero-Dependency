@@ -98,13 +98,14 @@ export function minifyCss(css) {
  */
 export function transformCssModule(rawCss, filePath) {
   const minified = minifyCss(rawCss);
+  const relPath = filePath ? path.relative(process.cwd(), filePath).replace(/\\/g, '/') : 'styles.css';
   // Escape backticks and backslashes so the CSS is safe inside a template literal
   const escaped = minified.replace(/\\/g, '\\\\').replace(/`/g, '\\`');
   const code = [
     `const __css = \`${escaped}\`;`,
     `if (typeof document !== 'undefined') {`,
     `  const __style = document.createElement('style');`,
-    `  __style.setAttribute('data-zeropack', ${JSON.stringify(filePath)});`,
+    `  __style.setAttribute('data-zeropack', ${JSON.stringify(relPath)});`,
     `  __style.textContent = __css;`,
     `  document.head.appendChild(__style);`,
     `}`,

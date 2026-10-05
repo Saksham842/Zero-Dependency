@@ -17,7 +17,7 @@ import { DASHBOARD_HTML } from './dashboard.js';
  */
 export function isPortAvailable(port, host = '0.0.0.0') {
   return new Promise((resolve) => {
-    const connectHost = (host === '0.0.0.0') ? '127.0.0.1' : host;
+    const bindHost = host === 'localhost' ? '127.0.0.1' : (host === '0.0.0.0' ? '127.0.0.1' : host);
     let resolved = false;
     function finish(val) {
       if (!resolved) {
@@ -26,25 +26,19 @@ export function isPortAvailable(port, host = '0.0.0.0') {
       }
     }
 
-    // 1. If connection succeeds, port is actively in use by another process
-    const client = net.createConnection({ port, host: connectHost });
+    const client = net.createConnection({ port, host: bindHost });
     client.once('connect', () => {
       client.destroy();
       finish(false);
     });
     client.once('error', () => {
       client.destroy();
-      // 2. Connection failed, now verify we can bind
       const tester = net.createServer();
       tester.once('error', () => finish(false));
       tester.once('listening', () => {
         tester.close(() => finish(true));
       });
-      if (host === 'localhost') {
-        tester.listen(port);
-      } else {
-        tester.listen(port, host);
-      }
+      tester.listen(port, bindHost);
     });
 
     setTimeout(() => {
@@ -706,7 +700,15 @@ export async function startDevServer(options = {}) {
       resolve({ server, port, broadcast, close: closeServer });
     });
 
-    server.on('error', (err) => {
+    server.on('error', async (err) => {
+      if (err.code === 'EADDRINUSE' && autoPort) {
+        try {
+          port = await findAvailablePort(port + 1, host);
+          logger.warn(`Port was in use, switched to ${port}`);
+          server.listen(port, listenHost);
+          return;
+        } catch (_) {}
+      }
       if (err.code === 'EADDRINUSE') {
         logger.error(`Port ${port} is already in use. Please specify another port with --port`);
       } else {

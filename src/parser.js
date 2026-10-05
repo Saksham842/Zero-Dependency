@@ -392,12 +392,13 @@ module.exports.default = __zp_json;
   // If CSS file, export CSS string and inject <style> tag in DOM environments
   if (filePath && filePath.endsWith('.css')) {
     const cssContent = JSON.stringify(rawCode);
+    const relPath = path.relative(process.cwd(), filePath).replace(/\\/g, '/');
     return {
       code: `const __css = ${cssContent};
 if (typeof document !== 'undefined') {
   try {
     var style = document.createElement('style');
-    style.setAttribute('data-zeropack', ${JSON.stringify(filePath)});
+    style.setAttribute('data-zeropack', ${JSON.stringify(relPath)});
     style.textContent = __css;
     document.head.appendChild(style);
   } catch (_) {}
