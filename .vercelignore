@@ -1,0 +1,4 @@
+# Ignore server implementation from Vercel serverless auto-detection
+src/server.js
+test/
+.github/
