@@ -13,11 +13,18 @@
 **The 100% Zero-Dependency JavaScript Bundler, Minifier & RFC 6455 HMR Dev Server.**  
 *Built strictly with Node.js built-in standard libraries.*
 
+[![CI Matrix](https://img.shields.io/badge/CI%20Matrix-6%2F6%20Passing-brightgreen.svg?style=for-the-badge&logo=githubactions)](https://github.com/Saksham842/Zero-Dependency/actions)
+[![Vercel Deployment](https://img.shields.io/badge/Vercel-Live%20Production-black.svg?style=for-the-badge&logo=vercel)](https://zero-dependency-beta.vercel.app/)
 [![Dependencies](https://img.shields.io/badge/dependencies-0%20(ZERO)-brightgreen.svg?style=for-the-badge&logo=node.js)](package.json)
 [![Node Version](https://img.shields.io/badge/node-%3E%3D18.0.0-blue.svg?style=for-the-badge&logo=node.js)](package.json)
 [![RFC 6455](https://img.shields.io/badge/WebSockets-RFC%206455%20Native-orange.svg?style=for-the-badge)](src/server.js)
 [![Reproducible](https://img.shields.io/badge/Builds-100%25%20Deterministic-purple.svg?style=for-the-badge)](src/build-tools.js)
 [![License](https://img.shields.io/badge/license-MIT-green.svg?style=for-the-badge)](LICENSE)
+
+<br/>
+
+### 🌐 Live Production Deployments
+**[⚡ ZeroPack Web Studio (Interactive App)](https://zero-dependency-beta.vercel.app/)** • **[📊 Developer Dashboard](https://zero-dependency-beta.vercel.app/dashboard.html)** • **[📡 Zero-Dep Stats API](https://zero-dependency-beta.vercel.app/api/stats)**
 
 </div>
 
@@ -26,19 +33,20 @@
 ## 📖 Table of Contents
 
 - [Overview](#-overview)
+- [ZeroPack Web Studio & Interactive Playground](#-zeropack-web-studio--interactive-playground)
+- [Developer Dashboard & Telemetry](#-developer-dashboard--telemetry)
 - [Zero-Dependency Standard Library Matrix](#-zero-dependency-standard-library-matrix)
 - [Key Features](#-key-features)
 - [Quick Start](#-quick-start)
-  - [Zero-Config Experience](#1-zero-config-experience)
-  - [Scaffold a Starter Project](#2-scaffold-a-starter-project)
-  - [Production Builds](#3-production-builds)
-  - [Development Server & HMR](#4-development-server--hmr)
+  - [1. Zero-Config Experience](#1-zero-config-experience)
+  - [2. Scaffold a Starter Project](#2-scaffold-a-starter-project)
+  - [3. Production Builds](#3-production-builds)
+  - [4. Development Server & HMR](#4-development-server--hmr)
 - [CLI Reference](#-cli-reference)
   - [Subcommands](#subcommands)
   - [Options & Flags](#options--flags)
   - [Configuration File (`zeropack.config.json`)](#configuration-file-zeropackconfigjson)
 - [TypeScript Support & Engine Caveats](#-typescript-support--engine-caveats)
-- [Developer Dashboard (`/__zeropack`)](#-developer-dashboard-__zeropack)
 - [Performance Benchmarks](#-performance-benchmarks)
 - [Architecture & How It Works](#-architecture--how-it-works)
   - [1. Lexer & Single-Pass State Machine Minifier](#1-lexer--single-pass-state-machine-minifier)
@@ -48,7 +56,7 @@
   - [5. Incremental Build Cache](#5-incremental-build-cache)
   - [6. Reproducible Build Verification](#6-reproducible-build-verification)
 - [Real-World Validation & Differential Testing](#-real-world-validation--differential-testing)
-- [Single-File Standalone Distribution](#-single-file-standalone-distribution)
+- [Single-File Standalone Distribution (`zeropack.js`)](#-single-file-standalone-distribution-zeropackjs)
 - [Project Scripts](#-project-scripts)
 - [License](#-license)
 
@@ -56,9 +64,41 @@
 
 ## 🌟 Overview
 
-**ZeroPack** was engineered for high-stakes competition environments, minimal containers, and zero-trust systems requiring **STRICTLY 0 external runtime or dev dependencies** (`dependencies: {}` and `devDependencies: {}`).
+**ZeroPack** was engineered for high-stakes competition environments, minimal containers, air-gapped systems, and zero-trust workflows requiring **STRICTLY 0 external runtime or dev dependencies** (`dependencies: {}` and `devDependencies: {}` in `package.json`).
 
-Instead of downloading thousands of indirect packages from npm (`webpack`, `esbuild`, `terser`, `chokidar`, `ws`, `express`, `commander`, `chalk`, `dotenv`, `source-map`), ZeroPack delivers a complete, production-ready frontend build toolchain built exclusively with **pure Node.js standard libraries** (`node:fs`, `node:path`, `node:crypto`, `node:http`, `node:util`, `node:string_decoder`, `node:zlib`, `node:net`, `node:child_process`, and raw ANSI escape sequences).
+Instead of pulling down hundreds of third-party packages from npm (`webpack`, `esbuild`, `terser`, `chokidar`, `ws`, `express`, `commander`, `chalk`, `dotenv`, `source-map`), ZeroPack delivers a complete, production-ready frontend build toolchain built exclusively with **pure Node.js standard libraries** (`node:fs`, `node:path`, `node:crypto`, `node:http`, `node:util`, `node:string_decoder`, `node:zlib`, `node:net`, `node:child_process`, and raw ANSI escape sequences).
+
+---
+
+## 🛠️ ZeroPack Web Studio & Interactive Playground
+
+ZeroPack includes a modern **Web Studio** developer tool and reactive playground live in production at **[zero-dependency-beta.vercel.app](https://zero-dependency-beta.vercel.app/)**:
+
+- **Multi-File Tabbed Code Editor:** Live editor with keyboard shortcuts (`Ctrl+Enter` to bundle and run) supporting `index.js`, `math.js`, `utils.js`, and `styles.css`.
+- **Pre-Configured Presets:** Instant switching between interactive demonstrations:
+  - `📐 Geometry Engine`: Mathematical circle and sphere volume calculations with real-time updates.
+  - `⚡ Counter Store`: State-management pattern with dispatch and action reducer loops.
+  - `🔄 Cyclic ESM Graph`: Demonstrates cyclic import handling with native ESM parity.
+- **Client-Side Bundler & Minifier Engine:** Bundles multi-file modules client-side in sub-millisecond real time with live compression savings telemetry.
+- **Multi-Tab Production Inspector:**
+  - `⚡ Live App`: Sandboxed safe execution of bundled code with runtime output cards.
+  - `📦 Bundle Output`: Formatted single-file CommonJS/ESM runtime wrapper with scoped module table.
+  - `🗜️ Minified`: Real-time token minification with compression percentage.
+  - `🕸️ Module Graph`: Interactive SVG dependency topology mapping AST import linkages.
+- **Interactive Geometry REPL:** Responsive slider dynamically recalculating Circle Area ($\pi r^2$), Circumference ($2\pi r$), and Sphere Volume ($\frac{4}{3}\pi r^3$) in real time with dynamic SVG canvas rendering.
+
+---
+
+## 📊 Developer Dashboard & Telemetry
+
+When running locally (`zeropack serve`) or in production at **[`/dashboard.html`](https://zero-dependency-beta.vercel.app/dashboard.html)**, ZeroPack provides an obsidian dark-theme developer telemetry dashboard:
+
+1. **Overview & Telemetry:** High-contrast metric cards displaying Total Modules, Minified Bundle Size, Gzip Compression via `node:zlib`, and Build Latency in milliseconds.
+2. **Top Module Distribution:** Visual progress bars displaying the largest modules by raw byte size and gzip-compressed byte size.
+3. **Interactive SVG Dependency Topology Graph:** Renders module nodes with directed arrow markers, module IDs, and hover tooltips detailing raw & gzip footprints.
+4. **Bundle Size Treemap:** Proportional rectangular squarified treemap with instant toggling between raw byte weights and gzip-compressed sizes.
+5. **Rebuild History Timeline:** Rebuild logs showing status (`SUCCESS` / `ERROR`), file paths, timestamps, and build durations.
+6. **Live Terminal Log Console:** Real-time log streamer powered by RFC 6455 WebSocket events.
 
 ---
 
@@ -76,8 +116,8 @@ Every ecosystem npm utility has a custom, native Node.js core replacement:
 | **`source-map`** / **`vlq`** | Hand-Crafted Base64-VLQ Engine | Custom 6-bit VLQ Math | SourceMap v3 generator supporting inline data URIs and `.map` files |
 | **`ts-loader`** / **`@babel/preset-typescript`** | Native Type Stripping Engine | `node:module.stripTypeScriptTypes` | Direct `.ts` type stripping without third-party transpilers (Node >= 22.6) |
 | **`terser`** / **`uglify-js`** | High-Throughput Lexer Minifier | `node:string_decoder` + `Uint8Array` | Strips comments & whitespace while preserving ASI, quotes, regex, and `${}` (>45 MB/s) |
-| **`chokidar`** | Recursive Directory Watcher | `node:fs.watch` | 100ms debounced file watcher with incremental rebuild triggers |
-| **`ws`** / **`socket.io`** | Native RFC 6455 WebSocket Server | `node:http` + `node:crypto` + `node:net` | Full WebSocket protocol: HTTP 101 upgrade handshake, frame encoding/decoding |
+| **`chokidar`** | Recursive Directory Watcher | `node:fs.watch` | 100ms debounced file watcher with incremental rebuild triggers and cross-platform fallbacks |
+| **`ws`** / **`socket.io`** | Native RFC 6455 WebSocket Server | `node:http` + `node:crypto` + `node:net` | Full WebSocket protocol: HTTP 101 upgrade handshake, binary frame encoding/decoding |
 | **`compression`** / **`gzip-size`** | In-Memory Gzip Calculator | `node:zlib.gzipSync` | Bundle and per-module compressed metrics with memoized incremental caching |
 | **`open`** / **`opener`** | Cross-Platform Browser Launcher | `node:child_process.exec` | Launches default browser (`start` on Windows, `open` on macOS, `xdg-open` on Linux) |
 | **`detect-port`** / **`get-port`** | Sequential Port Conflict Scanner | `node:net.createServer` | Probes sequential ports to find an available port when `--auto-port` is enabled |
@@ -89,12 +129,12 @@ Every ecosystem npm utility has a custom, native Node.js core replacement:
 
 ## ✨ Key Features
 
-- 🛡️ **0 External Dependencies:** Both `"dependencies"` and `"devDependencies"` in `package.json` are `{}`.
+- 🛡️ **0 External Dependencies:** Both `"dependencies"` and `"devDependencies"` in `package.json` are strictly `{}`.
 - ⚡ **Lightning Fast:** ~1 ms cold builds on small apps, ~68 ms on 500-module projects, and ~22 ms incremental rebuilds.
 - 🗺️ **Source Maps v3:** Hand-crafted Base64-VLQ variable-length quantity encoder generating standard SourceMap v3 `.map` files.
 - 📦 **node_modules Resolution:** Resolves bare package imports following Node's module algorithm (`exports`, `module`, `main`, and index fallbacks).
 - 🔷 **Native TypeScript Support:** Automatic `.ts` type stripping using native Node core (Node >= 22.6) with graceful runtime feature checks.
-- 🖥️ **Developer Dashboard (`/__zeropack`):** Web UI featuring interactive SVG dependency graphs, proportional Gzip treemaps, build timeline history, and streaming WebSocket logs.
+- 🖥️ **Developer Dashboard (`/__zeropack` & `/dashboard.html`):** Linear/Vercel-grade obsidian web UI featuring interactive SVG dependency graphs, proportional Gzip treemaps, build timeline history, and streaming WebSocket logs.
 - 🚨 **Full-Screen Error Overlay:** Browser compiler error overlay displaying exact file paths, line numbers, and formatted code frames.
 - 🎨 **CSS Hot-Swap:** Instant stylesheet replacement over WebSocket without re-executing JavaScript or losing DOM input state.
 - 🔄 **Native RFC 6455 WebSocket HMR:** Real-time live reloading with automatic exponential backoff reconnection.
@@ -213,7 +253,7 @@ ZeroPack automatically reads `zeropack.config.json` in the project root if prese
 ZeroPack provides native TypeScript (`.ts`) support **without installing `typescript` or `@babel/core`**.
 
 ### Engine Requirement
-- TypeScript type stripping relies on Node.js core's experimental `node:module.stripTypeScriptTypes`, introduced in **Node.js v22.6+**.
+- TypeScript type stripping relies on Node.js core's `node:module.stripTypeScriptTypes`, introduced in **Node.js v22.6+**.
 - When running on Node.js < 22.6, ZeroPack gracefully surfaces a structured `BuildError`:
   ```
   [ERROR] TypeScript type stripping requires Node.js >= 22.6.0 (current: v20.x.x).
@@ -228,27 +268,15 @@ ZeroPack provides native TypeScript (`.ts`) support **without installing `typesc
 
 ---
 
-## 🖥️ Developer Dashboard (`/__zeropack`)
-
-When running in development mode (`zeropack serve` or `zeropack`), navigate to **`http://localhost:3000/__zeropack`** to access the real-time Developer Dashboard:
-
-1. **Interactive SVG Dependency Graph:** Visualizes all modules in the bundle as SVG nodes with directed dependency edges. Mutually recursive circular import loops are automatically detected and highlighted in bright amber.
-2. **Squarified Gzip Treemap:** Visualizes module size weights proportionally. Allows instant toggling between uncompressed raw bytes and Gzip-compressed payload sizes (calculated via `node:zlib`).
-3. **Build Timeline & Metrics:** Tracks consecutive build timestamps, build durations in milliseconds, total bundle byte sizes, and active WebSocket client connections.
-4. **Live Terminal Log Stream:** Streams server-side compiler logs, HMR broadcasts, and file-change events directly into a dark-mode browser console.
-5. **Full-Screen Error Overlay:** When a syntax error or missing module occurs, an overlay takes over the browser window displaying the error stack, exact line numbers, and a syntax-highlighted code snippet.
-
----
-
 ## ⚡ Performance Benchmarks
 
-Benchmarks measured on **Windows 11 x64**, **Node.js v22.22.2**, on a local NTFS SSD using [`scripts/bench.js`](scripts/bench.js):
+Benchmarks measured on **Node.js v22.22.2** on a local SSD using [`scripts/bench.js`](scripts/bench.js):
 
 ### 1. Small Application (4 ESM Modules)
 - **Cold Bundling:** `0.94 ms` (median), `2.09 ms` (mean)
 - **Production Build (Minify + Source Map v3 + Gzip Calculation):** `0.94 ms` (median), `1.06 ms` (mean)
 
-### 2. Minifier Throughput on Real Library Sources (Multi-File Codebase)
+### 2. Minifier Throughput on Real Library Sources
 - **Workload Composition:** 14 real JavaScript library and compiler files (`test/fixtures/tiny-emitter`, `test/fixtures/kleur-mini`, `src/math.js`, `src/utils.js`, `src/components.js`, `src/sourcemap.js`, `src/parser.js`, `src/bundler.js`, `src/server.js`, `src/dashboard.js`, `src/cli.js`, etc.)
 - **Workload Size:** `144.65 KB` (`148,122 bytes`) of real, non-repeating JavaScript code
 - **Minified Size:** `113.26 KB` (`21.7%` size reduction)
@@ -349,8 +377,8 @@ Wraps all modules into a scoped Immediately Invoked Function Expression (IIFE) w
 - Multi-pass builds on identical source trees yield byte-for-byte identical SHA-256 hashes:
   ```
   --- VERIFICATION AUDIT REPORT ---
-  Build #1 SHA-256: 8e37aeb017d46861df1d914748d22648fe5e4195ffa63da609e253e7592ca7ee (3915 bytes)
-  Build #2 SHA-256: 8e37aeb017d46861df1d914748d22648fe5e4195ffa63da609e253e7592ca7ee (3915 bytes)
+  Build #1 SHA-256: 7fb88eaf2191c42a79325394b21e9f9b1679f74493ad532b0cf5b851dfd7ae0d (46828 bytes)
+  Build #2 SHA-256: 7fb88eaf2191c42a79325394b21e9f9b1679f74493ad532b0cf5b851dfd7ae0d (46828 bytes)
   [SUCCESS] BYTE-FOR-BYTE IDENTICAL! Deterministic reproducible build verified 100%.
   ```
 
@@ -358,7 +386,7 @@ Wraps all modules into a scoped Immediately Invoked Function Expression (IIFE) w
 
 ## 🧪 Real-World Validation & Differential Testing
 
-ZeroPack is validated against real-world ESM packages, real npm ecosystem modules, and complex edge cases using differential testing under `node:vm` compared directly against native Node.js ESM output:
+ZeroPack is validated against real-world ESM packages, real npm ecosystem modules, and complex edge cases using differential testing under `node:vm` compared directly against native Node.js ESM output across 18 automated test suites:
 
 - **Real Ecosystem NPM Packages ([`scripts/realworld-npm.js`](scripts/realworld-npm.js)):**
   - **`nanoid`:** Generates collision-resistant string IDs using Node's crypto CSPRNG.
@@ -366,7 +394,6 @@ ZeroPack is validated against real-world ESM packages, real npm ecosystem module
   - **`mitt`:** Functional 200-byte event emitter library.
   - **`camelcase`:** Transforms dash/dot/underscore/space-delimited strings to camelCase.
   - **`ms`:** Converts human-readable time strings into milliseconds.
-  *(All tested in external temporary directories via differential comparison against native Node.js ESM output)*
 - **Internal Real-World Fixtures ([`scripts/realworld.js`](scripts/realworld.js)):**
   - **`tiny-emitter`:** Pure ESM event emitter subscribing and firing events across multiple listeners.
   - **`kleur-mini`:** ANSI string styler with nested function chaining and color resets.
@@ -379,9 +406,9 @@ ZeroPack is validated against real-world ESM packages, real npm ecosystem module
 
 ---
 
-## 📦 Single-File Standalone Distribution
+## 📦 Single-File Standalone Distribution (`zeropack.js`)
 
-ZeroPack includes a standalone single-file compiler in [`src/build-tools.js`](src/build-tools.js) that packages the entire bundler, parser, minifier, and dev server into a single executable file: **`zeropack.js`** (~129 kB).
+ZeroPack includes a standalone single-file compiler in [`src/build-tools.js`](src/build-tools.js) that packages the entire bundler, parser, minifier, dashboard, and dev server into a single executable file: **`zeropack.js`** (~145 kB).
 
 ```bash
 # Generate standalone distribution and verify checksums:
@@ -397,14 +424,14 @@ node zeropack.js --entry src/index.js --out dist/bundle.js --minify
 
 | Command | Action |
 | :--- | :--- |
-| `npm run start` | Run CLI with zero-config auto-detection |
 | `npm run dev` | Start dev server with Live Reload HMR on port 3000 |
-| `npm run build` | Compile and minify `src/index.js` into `dist/bundle.js` |
+| `npm run build` | Compile and minify production bundle into `dist/bundle.js` and prepare Vercel public assets |
+| `npm run vercel-build` | Standalone Vercel deployment build hook |
 | `npm run build-standalone` | Concatenate all modules into executable `zeropack.js` and update `STDLIB.md` |
-| `npm run verify` | Run reproducible build checksum verification |
+| `npm run verify` | Run read-only deterministic reproducible build checksum verification |
 | `npm run bench` | Execute performance and minifier throughput benchmark suite |
-| `npm run check` | Run unit tests and real-world ESM validation suite via `node --test` |
-| `npm test` | Alias for `npm run check` |
+| `npm run check` | Run all 18 unit tests and real-world ESM validation suite via `node --test` |
+| `npm test` | Run test runner across all 18 test suites |
 
 ---
 
