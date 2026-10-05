@@ -45,8 +45,42 @@ const statsPayload = JSON.stringify({
 fs.writeFileSync(path.join(statsDir, 'stats'), statsPayload, 'utf8');
 fs.writeFileSync(path.join(statsDir, 'stats.json'), statsPayload, 'utf8');
 
-console.log('[Vercel Build] Successfully prepared public assets:');
+// 5. Generate .vercel/output for Vercel Build Output API v3
+// This explicitly guarantees Vercel deploys 100% static assets and ignores all server heuristics
+const vercelOutputDir = path.join(rootDir, '.vercel', 'output');
+const vercelStaticDir = path.join(vercelOutputDir, 'static');
+fs.mkdirSync(vercelStaticDir, { recursive: true });
+
+function copyRecursive(src, dest) {
+  fs.mkdirSync(dest, { recursive: true });
+  for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
+    const s = path.join(src, entry.name);
+    const d = path.join(dest, entry.name);
+    if (entry.isDirectory()) {
+      copyRecursive(s, d);
+    } else {
+      fs.copyFileSync(s, d);
+    }
+  }
+}
+
+copyRecursive(publicDir, vercelStaticDir);
+
+const configJson = {
+  version: 3,
+  routes: [
+    { handle: 'filesystem' },
+    { src: '/dashboard', dest: '/dashboard.html' },
+    { src: '/api/stats', dest: '/api/stats' },
+    { src: '/(.*)', dest: '/index.html' }
+  ]
+};
+
+fs.writeFileSync(path.join(vercelOutputDir, 'config.json'), JSON.stringify(configJson, null, 2), 'utf8');
+
+console.log('[Vercel Build] Successfully prepared public assets & Build Output API v3:');
 console.log('  - public/index.html (Contemporary Bento Grid UI)');
 console.log('  - public/dist/bundle.js (Compiled ZeroPack bundle)');
 console.log('  - public/dashboard.html (ZeroPack Developer Dashboard)');
 console.log('  - public/api/stats (Zero-dependency stats JSON endpoint)');
+console.log('  - .vercel/output/ (Vercel Build Output API v3 static specification)');

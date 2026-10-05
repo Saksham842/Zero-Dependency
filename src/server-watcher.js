@@ -30,16 +30,37 @@ export function createWatcher({ watchDir, publicDir, onFileChange }) {
   }
 
   function start() {
-    if (fs.existsSync(watchDir)) {
-      const w1 = fs.watch(watchDir, { recursive: true }, (eventType, filename) => handleWatchEvent(eventType, filename, watchDir));
-      w1.on('error', (err) => logger.warn(`Watcher error on ${watchDir}: ${err.message}`));
-      watchers.push(w1);
+    function safeWatch(targetDir, baseDir) {
+      if (!fs.existsSync(targetDir)) return;
+      try {
+        const w = fs.watch(targetDir, { recursive: true }, (eventType, filename) => handleWatchEvent(eventType, filename, baseDir));
+        w.on('error', (err) => logger.warn(`Watcher error on ${targetDir}: ${err.message}`));
+        watchers.push(w);
+      } catch (_) {
+        try {
+          const w = fs.watch(targetDir, (eventType, filename) => handleWatchEvent(eventType, filename, baseDir));
+          w.on('error', (err) => logger.warn(`Watcher error on ${targetDir}: ${err.message}`));
+          watchers.push(w);
+          function walk(cur) {
+            try {
+              const entries = fs.readdirSync(cur, { withFileTypes: true });
+              for (const entry of entries) {
+                if (entry.isDirectory() && entry.name !== 'node_modules' && entry.name !== '.git') {
+                  const sub = path.join(cur, entry.name);
+                  const sw = fs.watch(sub, (eventType, filename) => handleWatchEvent(eventType, filename, sub));
+                  watchers.push(sw);
+                  walk(sub);
+                }
+              }
+            } catch (_) {}
+          }
+          walk(targetDir);
+        } catch (_) {}
+      }
     }
-    if (fs.existsSync(publicDir)) {
-      const w2 = fs.watch(publicDir, { recursive: true }, (eventType, filename) => handleWatchEvent(eventType, filename, publicDir));
-      w2.on('error', (err) => logger.warn(`Watcher error on ${publicDir}: ${err.message}`));
-      watchers.push(w2);
-    }
+
+    safeWatch(watchDir, watchDir);
+    safeWatch(publicDir, publicDir);
   }
 
   function close() {

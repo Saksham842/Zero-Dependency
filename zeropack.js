@@ -4178,12 +4178,34 @@ export async function startDevServer(options = {}) {
   }
 
   const watchers = [];
-  if (fs.existsSync(watchDir)) {
-    watchers.push(fs.watch(watchDir, { recursive: true }, handleWatchEvent));
+
+  function safeWatchDir(targetDir, handler) {
+    if (!fs.existsSync(targetDir)) return;
+    try {
+      watchers.push(fs.watch(targetDir, { recursive: true }, handler));
+    } catch (_) {
+      // Platform fallback (e.g. Linux Node 18 where recursive: true throws ERR_FEATURE_UNAVAILABLE_ON_PLATFORM)
+      try {
+        watchers.push(fs.watch(targetDir, handler));
+        function walkAndWatch(current) {
+          try {
+            const entries = fs.readdirSync(current, { withFileTypes: true });
+            for (const entry of entries) {
+              if (entry.isDirectory() && entry.name !== 'node_modules' && entry.name !== '.git') {
+                const subPath = path.join(current, entry.name);
+                watchers.push(fs.watch(subPath, handler));
+                walkAndWatch(subPath);
+              }
+            }
+          } catch (_) {}
+        }
+        walkAndWatch(targetDir);
+      } catch (_) {}
+    }
   }
-  if (fs.existsSync(publicDir)) {
-    watchers.push(fs.watch(publicDir, { recursive: true }, handleWatchEvent));
-  }
+
+  safeWatchDir(watchDir, handleWatchEvent);
+  safeWatchDir(publicDir, handleWatchEvent);
 
   function closeServer() {
     for (const w of watchers) {

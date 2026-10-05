@@ -22,3 +22,7 @@ Thumbs.db
 agents.md
 .agents/
 explanation.md
+
+# Vercel local output directory
+.vercel/
+

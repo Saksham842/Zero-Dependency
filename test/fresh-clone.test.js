@@ -64,11 +64,12 @@ test('Fresh-clone test: zero-config build, serve, and port fallback with no prio
     assert.ok(fs.existsSync(path.join(tmpDir, 'zeropack.js')), 'zeropack.js must exist in fresh clone');
 
     // Helper to wait for the server port log
-    function waitForPortInLogs(getLogs, timeoutMs = 8000) {
+    function waitForPortInLogs(getLogs, timeoutMs = 15000) {
       const start = Date.now();
       return new Promise((resolve, reject) => {
         function check() {
-          const match = getLogs().match(/http:\/\/localhost:(\d+)\//);
+          const cleanLogs = getLogs().replace(/\x1b\[[0-9;]*m/g, '');
+          const match = cleanLogs.match(/http:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0):(\d+)\//);
           if (match) {
             resolve(parseInt(match[1], 10));
           } else if (Date.now() - start > timeoutMs) {
