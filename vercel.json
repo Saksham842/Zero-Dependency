@@ -1,5 +1,7 @@
 {
   "buildCommand": "node src/cli.js --minify && node scripts/prepare-vercel.js",
   "outputDirectory": "public",
-  "cleanUrls": true
+  "rewrites": [
+    { "source": "/dashboard", "destination": "/dashboard.html" }
+  ]
 }
